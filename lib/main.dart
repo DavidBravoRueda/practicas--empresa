@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 void main() {
   runApp(const TecnoStoreApp());
 }
@@ -53,7 +52,7 @@ class _HomePageState extends State<HomePage> {
     {'name': 'Móviles', 'icon': Icons.smartphone},
     {'name': 'Portátiles', 'icon': Icons.laptop_mac},
     {'name': 'Gaming', 'icon': Icons.sports_esports},
-    {'name': 'Componentes', 'icon': Icons.memory},
+    {'name': 'Componentes', 'icon': Icons.memory},    
     {'name': 'Periféricos', 'icon': Icons.keyboard},
   ];
 
@@ -149,6 +148,29 @@ class _HomePageState extends State<HomePage> {
 
   void openLogin() {
     setState(() => selectedTabIndex = 3);
+  }
+
+  void openCategory(Map<String, dynamic> category) {
+    final categoryName = category['name'] as String;
+    final categoryIcon = category['icon'] as IconData;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CategoryDetailPage(
+          name: categoryName,
+          icon: categoryIcon,
+          products: products.where((product) {
+            return (product['categories'] as List).contains(categoryName);
+          }).toList(),
+          favorites: favorites,
+          onFavorite: (product) {
+            toggleFavorite(product['name'] as String);
+          },
+          onViewCart: openCart,
+        ),
+      ),
+    );
   }
 
   void toggleFavorite(String productName) {
@@ -441,7 +463,7 @@ class _HomePageState extends State<HomePage> {
               final category = categories[index];
 
               return GestureDetector(
-                onTap: () => setState(() => selectedTabIndex = 1),
+                onTap: () => openCategory(category),
                 child: SizedBox(
                   width: 76,
                   child: Column(
@@ -560,27 +582,7 @@ class _HomePageState extends State<HomePage> {
               leading: Icon(categoryIcon),
               title: Text(categoryName),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => CategoryDetailPage(
-                      name: categoryName,
-                      icon: categoryIcon,
-                      products: products.where((product) {
-                        return (product['categories'] as List).contains(
-                          categoryName,
-                        );
-                      }).toList(),
-                      favorites: favorites,
-                      onFavorite: (product) {
-                        toggleFavorite(product['name'] as String);
-                      },
-                      onViewCart: openCart,
-                    ),
-                  ),
-                );
-              },
+              onTap: () => openCategory(category),
             ),
           );
         }),
@@ -638,6 +640,12 @@ class _HomePageState extends State<HomePage> {
                   ),
                   Text(
                     '${cartEntries.fold<int>(0, (sum, entry) => sum + entry.value)} artículos',
+                  ),
+                  TextButton.icon(
+                    onPressed: () => cart.value = {},
+                    icon: const Icon(Icons.remove_shopping_cart_outlined),
+                    label: const Text('Vaciar cesta'),
+                    style: TextButton.styleFrom(foregroundColor: Colors.red),
                   ),
                 ],
               ),
@@ -894,7 +902,7 @@ class _HomePageState extends State<HomePage> {
 
         return LoginFormContent(
           onLoginSuccess: () {
-            setState(() {});
+            setState(() {}); 
           },
         );
       },
