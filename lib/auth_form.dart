@@ -1,11 +1,16 @@
+
 import 'package:flutter/material.dart';
+import 'package:tecnostore/services/api_service.dart';
 
 import 'app_state.dart';
 
 class LoginFormContent extends StatefulWidget {
   final VoidCallback onLoginSuccess;
 
-  const LoginFormContent({super.key, required this.onLoginSuccess});
+  const LoginFormContent({
+    super.key,
+    required this.onLoginSuccess,
+  });
 
   @override
   State<LoginFormContent> createState() => _LoginFormContentState();
@@ -19,6 +24,7 @@ class _LoginFormContentState extends State<LoginFormContent> {
 
   bool isCreatingAccount = false;
   bool isPasswordHidden = true;
+  bool isLoading = false;
 
   @override
   void dispose() {
@@ -28,29 +34,80 @@ class _LoginFormContentState extends State<LoginFormContent> {
     super.dispose();
   }
 
-  void submitForm() {
-    if (!formKey.currentState!.validate()) return;
+  Future<void> submitForm() async {
+    if (isLoading || !formKey.currentState!.validate()) {
+      return;
+    }
 
-    isLoggedIn.value = true;
-    widget.onLoginSuccess();
+    setState(() {
+      isLoading = true;
+    });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          isCreatingAccount
-              ? 'Cuenta de demostración creada.'
-              : 'Sesión iniciada correctamente.',
+    try {
+      final Map<String, dynamic> user;
+
+      if (isCreatingAccount) {
+        user = await ApiService.register(
+          name: nameController.text.trim(),
+          email: emailController.text.trim(),
+          password: passwordController.text,
+        );
+      } else {
+        user = await ApiService.login(
+          email: emailController.text.trim(),
+          password: passwordController.text,
+        );
+      }
+
+      if (!mounted) return;
+
+      currentUser.value = user;
+      isLoggedIn.value = true;
+
+      widget.onLoginSuccess();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isCreatingAccount
+                ? 'Cuenta creada correctamente.'
+                : 'Sesión iniciada correctamente.',
+          ),
         ),
-      ),
-    );
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No se ha podido conectar con el servidor. '
+            'Comprueba la conexión y la URL de la API.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
   }
 
   void showProviderNotConfigured(String provider) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'El acceso con $provider estará disponible '
-          'cuando configuremos la autenticación.',
+          'El acceso con $provider todavía no está configurado.',
         ),
       ),
     );
@@ -66,7 +123,7 @@ class _LoginFormContentState extends State<LoginFormContent> {
       width: double.infinity,
       height: 52,
       child: OutlinedButton(
-        onPressed: onPressed,
+        onPressed: isLoading ? null : onPressed,
         style: OutlinedButton.styleFrom(
           backgroundColor: isApple ? Colors.black : Colors.white,
           foregroundColor: isApple ? Colors.white : textColor,
@@ -84,7 +141,10 @@ class _LoginFormContentState extends State<LoginFormContent> {
             const SizedBox(width: 12),
             Text(
               label,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ],
         ),
@@ -108,7 +168,11 @@ class _LoginFormContentState extends State<LoginFormContent> {
                   color: primaryColor,
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Icon(Icons.bolt, size: 45, color: textColor),
+                child: const Icon(
+                  Icons.bolt,
+                  size: 45,
+                  color: textColor,
+                ),
               ),
             ),
             const SizedBox(height: 24),
@@ -203,16 +267,18 @@ class _LoginFormContentState extends State<LoginFormContent> {
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'La recuperación estará disponible '
-                          'al conectar la autenticación.',
-                        ),
-                      ),
-                    );
-                  },
+                  onPressed: isLoading
+                      ? null
+                      : () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'La recuperación de contraseña '
+                                'todavía no está disponible.',
+                              ),
+                            ),
+                          );
+                        },
                   child: const Text('¿Has olvidado tu contraseña?'),
                 ),
               ),
@@ -227,21 +293,38 @@ class _LoginFormContentState extends State<LoginFormContent> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                onPressed: submitForm,
-                child: Text(
-                  isCreatingAccount ? 'CREAR CUENTA' : 'INICIAR SESIÓN',
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                ),
+                onPressed: isLoading ? null : submitForm,
+                child: isLoading
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: textColor,
+                        ),
+                      )
+                    : Text(
+                        isCreatingAccount
+                            ? 'CREAR CUENTA'
+                            : 'INICIAR SESIÓN',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
               ),
             ),
             const SizedBox(height: 24),
             Row(
               children: [
-                const Expanded(child: Divider(color: Color(0xFFDADCE0))),
+                const Expanded(
+                  child: Divider(color: Color(0xFFDADCE0)),
+                ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Text(
-                    isCreatingAccount ? 'O REGÍSTRATE CON' : 'O CONTINÚA CON',
+                    isCreatingAccount
+                        ? 'O REGÍSTRATE CON'
+                        : 'O CONTINÚA CON',
                     style: const TextStyle(
                       color: Colors.grey,
                       fontSize: 11,
@@ -250,7 +333,9 @@ class _LoginFormContentState extends State<LoginFormContent> {
                     ),
                   ),
                 ),
-                const Expanded(child: Divider(color: Color(0xFFDADCE0))),
+                const Expanded(
+                  child: Divider(color: Color(0xFFDADCE0)),
+                ),
               ],
             ),
             const SizedBox(height: 20),
@@ -269,18 +354,23 @@ class _LoginFormContentState extends State<LoginFormContent> {
             ),
             const SizedBox(height: 12),
             buildSocialButton(
-              leading: const Text('', style: TextStyle(fontSize: 25)),
+              leading: const Text(
+                '',
+                style: TextStyle(fontSize: 25),
+              ),
               label: 'Continuar con Apple',
               isApple: true,
               onPressed: () => showProviderNotConfigured('Apple'),
             ),
             const SizedBox(height: 16),
             TextButton(
-              onPressed: () {
-                setState(() {
-                  isCreatingAccount = !isCreatingAccount;
-                });
-              },
+              onPressed: isLoading
+                  ? null
+                  : () {
+                      setState(() {
+                        isCreatingAccount = !isCreatingAccount;
+                      });
+                    },
               child: Text(
                 isCreatingAccount
                     ? '¿Ya tienes cuenta? Inicia sesión'

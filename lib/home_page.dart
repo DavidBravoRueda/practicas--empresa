@@ -15,6 +15,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int selectedTabIndex = 0;
+  String? pendingFavoriteProductName;
   final TextEditingController homeSearchController = TextEditingController();
 
   final ValueNotifier<Set<String>> favorites = ValueNotifier<Set<String>>({});
@@ -114,11 +115,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   void openCart() {
-    setState(() => selectedTabIndex = 2);
+    setState(() => selectedTabIndex = 3);
   }
 
   void openLogin() {
-    setState(() => selectedTabIndex = 3);
+    setState(() => selectedTabIndex = 4);
   }
 
   void openCategory(Map<String, dynamic> category) {
@@ -146,6 +147,7 @@ class _HomePageState extends State<HomePage> {
 
   void toggleFavorite(String productName) {
     if (!isLoggedIn.value) {
+      pendingFavoriteProductName = productName;
       showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -156,7 +158,10 @@ class _HomePageState extends State<HomePage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
+              onPressed: () {
+                pendingFavoriteProductName = null;
+                Navigator.pop(dialogContext);
+              },
               child: const Text('Cancelar'),
             ),
             FilledButton(
@@ -276,43 +281,64 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(width: 8),
         ],
       ),
-      body: IndexedStack(
-        index: selectedTabIndex,
-        children: [
-          _buildHomeContent(),
-          _buildCategoriesPage(),
-          _buildCartPage(),
-          _buildProfilePage(),
-        ],
+      body: ValueListenableBuilder<bool>(
+        valueListenable: isLoggedIn,
+        builder: (context, loggedIn, child) => IndexedStack(
+          index: selectedTabIndex,
+          children: [
+            _buildHomeContent(),
+            _buildCategoriesPage(),
+            if (loggedIn) _buildFavoritesPage() else const SizedBox.shrink(),
+            _buildCartPage(),
+            _buildProfilePage(),
+          ],
+        ),
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: selectedTabIndex,
-        backgroundColor: Colors.white,
-        indicatorColor: primaryColor.withValues(alpha: 0.35),
-        onDestinationSelected: (index) {
-          setState(() => selectedTabIndex = index);
+      bottomNavigationBar: ValueListenableBuilder<bool>(
+        valueListenable: isLoggedIn,
+        builder: (context, loggedIn, child) {
+          final destinations = <NavigationDestination>[
+            const NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home),
+              label: 'Inicio',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.grid_view_rounded),
+              label: 'Categorías',
+            ),
+            if (loggedIn)
+              const NavigationDestination(
+                icon: Icon(Icons.favorite_border),
+                selectedIcon: Icon(Icons.favorite),
+                label: 'Favoritos',
+              ),
+            const NavigationDestination(
+              icon: Icon(Icons.shopping_cart_outlined),
+              selectedIcon: Icon(Icons.shopping_cart),
+              label: 'Carrito',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.person_outline),
+              selectedIcon: Icon(Icons.person),
+              label: 'Perfil',
+            ),
+          ];
+          final visibleIndex = !loggedIn && selectedTabIndex > 2
+              ? selectedTabIndex - 1
+              : selectedTabIndex;
+
+          return NavigationBar(
+            selectedIndex: visibleIndex,
+            backgroundColor: Colors.white,
+            indicatorColor: primaryColor.withValues(alpha: 0.35),
+            onDestinationSelected: (index) {
+              final pageIndex = !loggedIn && index >= 2 ? index + 1 : index;
+              setState(() => selectedTabIndex = pageIndex);
+            },
+            destinations: destinations,
+          );
         },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Inicio',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.grid_view_rounded),
-            label: 'Categorías',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.shopping_cart_outlined),
-            selectedIcon: Icon(Icons.shopping_cart),
-            label: 'Carrito',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Perfil',
-          ),
-        ],
       ),
     );
   }
@@ -834,14 +860,51 @@ class _HomePageState extends State<HomePage> {
                   ),
                   const SizedBox(height: 24),
                   const Text(
-                    '¡Sesión iniciada!',
+                    'Mi cuenta',
                     style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900),
                   ),
                   const SizedBox(height: 10),
-                  const Text(
-                    'Ya puedes guardar productos en favoritos.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey),
+                  ValueListenableBuilder<Map<String, dynamic>?>(
+                    valueListenable: currentUser,
+                    builder: (context, user, child) {
+                      final roles = user?['roles'];
+                      final role =
+                          user?['role']?.toString() ??
+                          (roles is List ? roles.join(', ') : null);
+
+                      return Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(top: 8),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          children: [
+                            _profileDataRow(
+                              Icons.person_outline,
+                              'Nombre',
+                              user?['name']?.toString() ?? 'No disponible',
+                            ),
+                            const Divider(height: 24),
+                            _profileDataRow(
+                              Icons.email_outlined,
+                              'Correo electrónico',
+                              user?['email']?.toString() ?? 'No disponible',
+                            ),
+                            if (role != null && role.isNotEmpty) ...[
+                              const Divider(height: 24),
+                              _profileDataRow(
+                                Icons.badge_outlined,
+                                'Rol',
+                                role,
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 28),
                   SizedBox(
@@ -873,10 +936,125 @@ class _HomePageState extends State<HomePage> {
 
         return LoginFormContent(
           onLoginSuccess: () {
-            setState(() {});
+            setState(() {
+              final pendingProduct = pendingFavoriteProductName;
+              if (pendingProduct != null) {
+                favorites.value = {...favorites.value, pendingProduct};
+                pendingFavoriteProductName = null;
+              }
+              selectedTabIndex = 4;
+            });
           },
         );
       },
+    );
+  }
+
+  Widget _buildFavoritesPage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(20, 20, 20, 12),
+          child: Text(
+            'Mis favoritos',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+          ),
+        ),
+        Expanded(
+          child: ValueListenableBuilder<Set<String>>(
+            valueListenable: favorites,
+            builder: (context, favoriteNames, child) {
+              final favoriteProducts = products
+                  .where(
+                    (product) =>
+                        favoriteNames.contains(product['name'] as String),
+                  )
+                  .toList();
+
+              if (!isLoggedIn.value || favoriteProducts.isEmpty) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.favorite_border,
+                          size: 58,
+                          color: Colors.grey.shade400,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          isLoggedIn.value
+                              ? 'Todavía no tienes favoritos.'
+                              : 'Inicia sesión para guardar tus favoritos.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          onPressed: () => setState(
+                            () => selectedTabIndex = isLoggedIn.value ? 1 : 4,
+                          ),
+                          child: Text(
+                            isLoggedIn.value
+                                ? 'Explorar productos'
+                                : 'Iniciar sesión',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              return GridView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+                itemCount: favoriteProducts.length,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  mainAxisExtent: 255,
+                ),
+                itemBuilder: (context, index) {
+                  final product = favoriteProducts[index];
+                  return ProductCard(
+                    product: product,
+                    favorites: favorites,
+                    onFavorite: () => toggleFavorite(product['name'] as String),
+                    onViewCart: openCart,
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _profileDataRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: textColor),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(color: Colors.grey)),
+              const SizedBox(height: 4),
+              Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
