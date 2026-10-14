@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'app_state.dart';
 import 'auth_form.dart';
 import 'category_detail_page.dart';
+import 'checkout_page.dart';
 import 'product_widgets.dart';
 import 'search_results_page.dart';
+import 'services/api_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -16,96 +18,200 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int selectedTabIndex = 0;
   String? pendingFavoriteProductName;
-  final TextEditingController homeSearchController = TextEditingController();
 
-  final ValueNotifier<Set<String>> favorites = ValueNotifier<Set<String>>({});
+  final TextEditingController homeSearchController =
+      TextEditingController();
 
-  final List<Map<String, dynamic>> categories = [
-    {'name': 'Móviles', 'icon': Icons.smartphone},
-    {'name': 'Portátiles', 'icon': Icons.laptop_mac},
-    {'name': 'Gaming', 'icon': Icons.sports_esports},
-    {'name': 'Componentes', 'icon': Icons.memory},
-    {'name': 'Periféricos', 'icon': Icons.keyboard},
-  ];
+  final ValueNotifier<Set<String>> favorites =
+      ValueNotifier<Set<String>>({});
 
-  final List<Map<String, dynamic>> products = [
-    {
-      'name': 'iPhone 17 Pro',
-      'categories': ['Móviles'],
-      'price': '1.319,00 €',
-      'originalPrice': '1.469,00 €',
-      'icon': Icons.smartphone,
-      'color': const Color(0xFFE1E6ED),
-      'discount': '-10%',
-      'brand': 'Apple',
-      'availability': 'Disponible',
-      'description': 'El iPhone 17 Pro combina un diseño premium, cámaras avanzadas y un rendimiento potente.',
-      'features': [
-        'Pantalla de alta calidad',
-        'Chip de alto rendimiento',
-        'Cámaras avanzadas',
-        'Conectividad 5G',
-        'Reconocimiento facial',
-      ],
-    },
-    {
-      'name': 'Portátil Gaming',
-      'categories': ['Portátiles', 'Gaming'],
-      'price': '899,00 €',
-      'originalPrice': '1.099,00 €',
-      'icon': Icons.laptop_mac,
-      'color': const Color(0xFFE4E0F5),
-      'discount': '-18%',
-      'brand': 'Gaming',
-      'availability': 'Disponible',
-      'description': 'Portátil diseñado para videojuegos, tareas exigentes y aplicaciones que necesitan un buen rendimiento.',
-      'features': [
-        'Pantalla de alta resolución',
-        'Procesador de alto rendimiento',
-        'Gráficos para gaming',
-        'Teclado cómodo para jugar',
-        'Conectividad Wi-Fi y Bluetooth',
-      ],
-    },
-    {
-      'name': 'Auriculares Pro',
-      'categories': ['Periféricos'],
-      'price': '79,99 €',
-      'originalPrice': '99,99 €',
-      'icon': Icons.headphones,
-      'color': const Color(0xFFFFE8D7),
-      'discount': '-20%',
-      'brand': 'TecnoStore Audio',
-      'availability': 'Disponible',
-      'description': 'Auriculares pensados para escuchar música, ver películas y realizar llamadas con comodidad.',
-      'features': [
-        'Diseño ergonómico',
-        'Sonido estéreo',
-        'Controles de reproducción',
-        'Micrófono integrado',
-        'Almohadillas cómodas',
-      ],
-    },
-    {
-      'name': 'Mando Gaming',
-      'categories': ['Periféricos', 'Gaming'],
-      'price': '59,99 €',
-      'originalPrice': '74,99 €',
-      'icon': Icons.sports_esports,
-      'color': const Color(0xFFD9F0E5),
-      'discount': '-20%',
-      'brand': 'TecnoStore Gaming',
-      'availability': 'Disponible',
-      'description': 'Mando diseñado para disfrutar de videojuegos con un agarre cómodo y controles intuitivos.',
-      'features': [
-        'Diseño ergonómico',
-        'Joysticks analógicos',
-        'Botones de acción',
-        'Cruceta direccional',
-        'Agarre cómodo',
-      ],
-    },
-  ];
+  List<Map<String, dynamic>> products = [];
+  List<Map<String, dynamic>> categories = [];
+  List<Map<String, dynamic>> brands = [];
+
+  bool _isLoadingCatalog = true;
+  String? _catalogError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCatalog();
+  }
+
+  Future<void> _loadCatalog() async {
+    if (mounted) {
+      setState(() {
+        _isLoadingCatalog = true;
+        _catalogError = null;
+      });
+    }
+
+    try {
+      final results = await Future.wait([
+        ApiService.getProducts(),
+        ApiService.getCategories(),
+      ]);
+
+      final apiProducts = results[0];
+      final apiCategories = results[1];
+
+      final loadedProducts = apiProducts
+          .where((product) => product['is_active'] != false)
+          .map(_mapApiProduct)
+          .toList();
+
+      final loadedCategories = apiCategories.map((category) {
+        final name = category['name']?.toString() ?? 'Otros';
+
+        return <String, dynamic>{
+          ...category,
+          'name': name,
+          'icon': _iconForCategory(name),
+        };
+      }).toList();
+
+      if (!mounted) return;
+
+      setState(() {
+        products = loadedProducts;
+        categories = loadedCategories;
+        _isLoadingCatalog = false;
+        _catalogError = null;
+      });
+
+      // Las marcas son información complementaria.
+      // Si falla este endpoint, el catálogo sigue funcionando.
+      try {
+        final loadedBrands = await ApiService.getBrands();
+
+        if (!mounted) return;
+
+        setState(() {
+          brands = loadedBrands;
+        });
+      } catch (_) {
+        // La tienda puede funcionar aunque no se carguen las marcas.
+      }
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _isLoadingCatalog = false;
+        _catalogError =
+            'No se ha podido cargar el catálogo. Comprueba tu conexión e inténtalo de nuevo.';
+      });
+    }
+  }
+
+  Map<String, dynamic> _mapApiProduct(
+    Map<String, dynamic> apiProduct,
+  ) {
+    final categoryData = apiProduct['category'];
+    final brandData = apiProduct['brand'];
+
+    final categoryName = categoryData is Map
+        ? categoryData['name']?.toString() ?? 'Otros'
+        : 'Otros';
+
+    final brandName = brandData is Map
+        ? brandData['name']?.toString() ?? 'Sin marca'
+        : 'Sin marca';
+
+    final rawPrice = apiProduct['price'];
+    final numericPrice =
+        double.tryParse(rawPrice?.toString() ?? '') ?? 0.0;
+
+    final rawStock = apiProduct['stock'];
+
+    final stock = rawStock is num
+        ? rawStock.toInt()
+        : int.tryParse(rawStock?.toString() ?? '') ?? 0;
+
+    final imageUrl = apiProduct['image_url']?.toString();
+
+    return {
+      'id': apiProduct['id'],
+      'sku': apiProduct['sku']?.toString() ?? '',
+      'name': apiProduct['name']?.toString() ?? 'Producto',
+      'createdAt': apiProduct['created_at']?.toString(),
+      'categories': [categoryName],
+      'categoryId': apiProduct['category_id'],
+      'brandId': apiProduct['brand_id'],
+      'brand': brandName,
+      'price': _formatPrice(numericPrice),
+      'originalPrice': null,
+      'discount': null,
+      'icon': _iconForCategory(categoryName),
+      'color': _colorForCategory(categoryName),
+      'availability': stock > 0 ? 'Disponible' : 'Agotado',
+      'stock': stock,
+      'description': apiProduct['description']?.toString() ??
+          'Descubre este producto en TecnoStore.',
+      'features': <String>[],
+      'imageUrl': imageUrl,
+      'isActive': apiProduct['is_active'] != false,
+    };
+  }
+
+  IconData _iconForCategory(String categoryName) {
+    final name = categoryName.toLowerCase();
+
+    if (name.contains('móvil') || name.contains('movil')) {
+      return Icons.smartphone;
+    }
+
+    if (name.contains('portátil') || name.contains('portatil')) {
+      return Icons.laptop_mac;
+    }
+
+    if (name.contains('gaming') || name.contains('videojuego')) {
+      return Icons.sports_esports;
+    }
+
+    if (name.contains('componente')) {
+      return Icons.memory;
+    }
+
+    if (name.contains('periférico') || name.contains('periferico')) {
+      return Icons.keyboard;
+    }
+
+    if (name.contains('audio') || name.contains('auricular')) {
+      return Icons.headphones;
+    }
+
+    if (name.contains('tablet')) {
+      return Icons.tablet_mac;
+    }
+
+    if (name.contains('televisión') || name.contains('television')) {
+      return Icons.tv;
+    }
+
+    return Icons.devices;
+  }
+
+  Color _colorForCategory(String categoryName) {
+    final name = categoryName.toLowerCase();
+
+    if (name.contains('móvil') || name.contains('movil')) {
+      return const Color(0xFFE1E6ED);
+    }
+
+    if (name.contains('portátil') || name.contains('portatil')) {
+      return const Color(0xFFE4E0F5);
+    }
+
+    if (name.contains('gaming')) {
+      return const Color(0xFFD9F0E5);
+    }
+
+    if (name.contains('audio') || name.contains('periférico')) {
+      return const Color(0xFFFFE8D7);
+    }
+
+    return const Color(0xFFE8EDF2);
+  }
 
   @override
   void dispose() {
@@ -126,15 +232,20 @@ class _HomePageState extends State<HomePage> {
     final categoryName = category['name'] as String;
     final categoryIcon = category['icon'] as IconData;
 
+    final categoryProducts = products.where((product) {
+      final productCategories = product['categories'];
+
+      return productCategories is List &&
+          productCategories.contains(categoryName);
+    }).toList();
+
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => CategoryDetailPage(
           name: categoryName,
           icon: categoryIcon,
-          products: products.where((product) {
-            return (product['categories'] as List).contains(categoryName);
-          }).toList(),
+          products: categoryProducts,
           favorites: favorites,
           onFavorite: (product) {
             toggleFavorite(product['name'] as String);
@@ -148,6 +259,7 @@ class _HomePageState extends State<HomePage> {
   void toggleFavorite(String productName) {
     if (!isLoggedIn.value) {
       pendingFavoriteProductName = productName;
+
       showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -171,7 +283,9 @@ class _HomePageState extends State<HomePage> {
               ),
               onPressed: () {
                 Navigator.pop(dialogContext);
-                Navigator.of(context).popUntil((route) => route.isFirst);
+                Navigator.of(context).popUntil(
+                  (route) => route.isFirst,
+                );
                 openLogin();
               },
               child: const Text('Iniciar sesión'),
@@ -179,6 +293,7 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
       );
+
       return;
     }
 
@@ -193,7 +308,8 @@ class _HomePageState extends State<HomePage> {
     favorites.value = updatedFavorites;
   }
 
-  void continueCheckout() {
+  // Abre el formulario de envío y registra el pedido en la API.
+  Future<void> continueCheckout() async {
     if (!isLoggedIn.value) {
       showDialog<void>(
         context: context,
@@ -222,14 +338,65 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
       );
+
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('La compra estará disponible próximamente.'),
+    final checkoutProducts = <Map<String, dynamic>>[];
+
+    for (final entry in cart.value.entries) {
+      if (entry.value <= 0) continue;
+
+      final matchingProducts = products.where(
+        (product) => product['name'] == entry.key,
+      );
+
+      if (matchingProducts.isEmpty) continue;
+
+      checkoutProducts.add({
+        'product': matchingProducts.first,
+        'quantity': entry.value,
+      });
+    }
+
+    if (checkoutProducts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Tu cesta está vacía o los productos ya no están disponibles.',
+          ),
+        ),
+      );
+
+      return;
+    }
+
+    final order = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(
+        builder: (_) => CheckoutPage(
+          cartProducts: checkoutProducts,
+        ),
       ),
     );
+
+    if (!mounted || order == null) return;
+
+    // La cesta solo se vacía si el formulario devuelve un pedido creado.
+    cart.value = <String, int>{};
+
+    final orderId = order['id']?.toString() ?? '';
+    final total = order['total']?.toString() ?? '0';
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Pedido #$orderId registrado correctamente. Total: $total €',
+        ),
+        duration: const Duration(seconds: 5),
+      ),
+    );
+
+    await _loadCatalog();
   }
 
   @override
@@ -248,7 +415,11 @@ class _HomePageState extends State<HomePage> {
                 color: primaryColor,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.bolt, color: textColor, size: 25),
+              child: const Icon(
+                Icons.bolt,
+                color: textColor,
+                size: 25,
+              ),
             ),
             const SizedBox(width: 9),
             const Text(
@@ -288,7 +459,10 @@ class _HomePageState extends State<HomePage> {
           children: [
             _buildHomeContent(),
             _buildCategoriesPage(),
-            if (loggedIn) _buildFavoritesPage() else const SizedBox.shrink(),
+            if (loggedIn)
+              _buildFavoritesPage()
+            else
+              const SizedBox.shrink(),
             _buildCartPage(),
             _buildProfilePage(),
           ],
@@ -324,16 +498,20 @@ class _HomePageState extends State<HomePage> {
               label: 'Perfil',
             ),
           ];
-          final visibleIndex = !loggedIn && selectedTabIndex > 2
-              ? selectedTabIndex - 1
-              : selectedTabIndex;
+
+          final visibleIndex =
+              !loggedIn && selectedTabIndex > 2
+                  ? selectedTabIndex - 1
+                  : selectedTabIndex;
 
           return NavigationBar(
             selectedIndex: visibleIndex,
             backgroundColor: Colors.white,
             indicatorColor: primaryColor.withValues(alpha: 0.35),
             onDestinationSelected: (index) {
-              final pageIndex = !loggedIn && index >= 2 ? index + 1 : index;
+              final pageIndex =
+                  !loggedIn && index >= 2 ? index + 1 : index;
+
               setState(() => selectedTabIndex = pageIndex);
             },
             destinations: destinations,
@@ -344,6 +522,43 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildHomeContent() {
+    final sortedProducts = List<Map<String, dynamic>>.from(products)
+      ..sort((first, second) {
+        final firstDate = DateTime.tryParse(
+          first['createdAt']?.toString() ?? '',
+        );
+
+        final secondDate = DateTime.tryParse(
+          second['createdAt']?.toString() ?? '',
+        );
+
+        if (firstDate != null && secondDate != null) {
+          final dateOrder = secondDate.compareTo(firstDate);
+
+          if (dateOrder != 0) return dateOrder;
+        } else if (firstDate != null) {
+          return -1;
+        } else if (secondDate != null) {
+          return 1;
+        }
+
+        final firstId = int.tryParse(
+          first['id']?.toString() ?? '',
+        );
+
+        final secondId = int.tryParse(
+          second['id']?.toString() ?? '',
+        );
+
+        if (firstId != null && secondId != null) {
+          return secondId.compareTo(firstId);
+        }
+
+        return 0;
+      });
+
+    final latestProducts = sortedProducts.take(4).toList();
+
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
@@ -354,10 +569,15 @@ class _HomePageState extends State<HomePage> {
             controller: homeSearchController,
             decoration: InputDecoration(
               hintText: 'Busca móviles, portátiles...',
-              prefixIcon: const Icon(Icons.search, color: textColor),
+              prefixIcon: const Icon(
+                Icons.search,
+                color: textColor,
+              ),
               filled: true,
               fillColor: backgroundColor,
-              contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 14,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(13),
                 borderSide: BorderSide.none,
@@ -365,6 +585,7 @@ class _HomePageState extends State<HomePage> {
             ),
             onSubmitted: (value) {
               final query = value.trim();
+
               if (query.isEmpty) return;
 
               Navigator.push(
@@ -379,7 +600,9 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ).then((_) {
-                if (mounted) homeSearchController.clear();
+                if (mounted) {
+                  homeSearchController.clear();
+                }
               });
             },
           ),
@@ -426,7 +649,10 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(height: 10),
                 const Text(
                   'Descubre tus próximos favoritos.',
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 13,
+                  ),
                 ),
                 const SizedBox(height: 20),
                 FilledButton(
@@ -434,7 +660,9 @@ class _HomePageState extends State<HomePage> {
                     backgroundColor: primaryColor,
                     foregroundColor: textColor,
                   ),
-                  onPressed: () => setState(() => selectedTabIndex = 1),
+                  onPressed: () {
+                    setState(() => selectedTabIndex = 1);
+                  },
                   child: const Text(
                     'EXPLORAR PRODUCTOS',
                     style: TextStyle(fontWeight: FontWeight.w900),
@@ -449,77 +677,136 @@ class _HomePageState extends State<HomePage> {
           'Ver todas',
           () => setState(() => selectedTabIndex = 1),
         ),
-        SizedBox(
-          height: 105,
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            scrollDirection: Axis.horizontal,
-            itemCount: categories.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (context, index) {
-              final category = categories[index];
+        if (_isLoadingCatalog && categories.isEmpty)
+          const SizedBox(
+            height: 90,
+            child: Center(
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (categories.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(20),
+            child: Text('No hay categorías disponibles.'),
+          )
+        else
+          SizedBox(
+            height: 105,
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              scrollDirection: Axis.horizontal,
+              itemCount: categories.length,
+              separatorBuilder: (context, index) =>
+                  const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final category = categories[index];
 
-              return GestureDetector(
-                onTap: () => openCategory(category),
-                child: SizedBox(
-                  width: 76,
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 62,
-                        height: 62,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(17),
+                return GestureDetector(
+                  onTap: () => openCategory(category),
+                  child: SizedBox(
+                    width: 76,
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 62,
+                          height: 62,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(17),
+                          ),
+                          child: Icon(
+                            category['icon'] as IconData,
+                            color: textColor,
+                            size: 28,
+                          ),
                         ),
-                        child: Icon(
-                          category['icon'] as IconData,
-                          color: textColor,
-                          size: 28,
+                        const SizedBox(height: 8),
+                        Text(
+                          category['name'] as String,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        category['name'] as String,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
-        ),
         const SizedBox(height: 20),
         _buildSectionTitle(
           'Los más destacados',
           'Ver más',
           () => setState(() => selectedTabIndex = 1),
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: products.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              mainAxisExtent: 255,
+        if (_isLoadingCatalog)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 35),
+            child: Center(
+              child: CircularProgressIndicator(),
             ),
-            itemBuilder: (context, index) => _buildProductCard(products[index]),
+          )
+        else if (_catalogError != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            child: Column(
+              children: [
+                const Icon(
+                  Icons.cloud_off_outlined,
+                  size: 45,
+                  color: Colors.grey,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _catalogError!,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: _loadCatalog,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Reintentar'),
+                ),
+              ],
+            ),
+          )
+        else if (products.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(
+              child: Text('No hay productos disponibles.'),
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: latestProducts.length,
+              gridDelegate:
+                  const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                mainAxisExtent: 255,
+              ),
+              itemBuilder: (context, index) =>
+                  _buildProductCard(latestProducts[index]),
+            ),
           ),
-        ),
       ],
     );
   }
 
-  Widget _buildSectionTitle(String title, String action, VoidCallback onTap) {
+  Widget _buildSectionTitle(
+    String title,
+    String action,
+    VoidCallback onTap,
+  ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
       child: Row(
@@ -560,29 +847,69 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildCategoriesPage() {
+    if (_isLoadingCatalog && categories.isEmpty) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (_catalogError != null && categories.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.cloud_off_outlined,
+                size: 45,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _catalogError!,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _loadCatalog,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Reintentar'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
         const Text(
           'Categorías',
-          style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900),
+          style: TextStyle(
+            fontSize: 25,
+            fontWeight: FontWeight.w900,
+          ),
         ),
         const SizedBox(height: 16),
-        ...categories.map((category) {
-          final categoryName = category['name'] as String;
-          final categoryIcon = category['icon'] as IconData;
+        if (categories.isEmpty)
+          const Text('No hay categorías disponibles.')
+        else
+          ...categories.map((category) {
+            final categoryName = category['name'] as String;
+            final categoryIcon = category['icon'] as IconData;
 
-          return Card(
-            color: Colors.white,
-            elevation: 0,
-            child: ListTile(
-              leading: Icon(categoryIcon),
-              title: Text(categoryName),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => openCategory(category),
-            ),
-          );
-        }),
+            return Card(
+              color: Colors.white,
+              elevation: 0,
+              child: ListTile(
+                leading: Icon(categoryIcon),
+                title: Text(categoryName),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => openCategory(category),
+              ),
+            );
+          }),
       ],
     );
   }
@@ -591,16 +918,29 @@ class _HomePageState extends State<HomePage> {
     return ValueListenableBuilder<Map<String, int>>(
       valueListenable: cart,
       builder: (context, cartItems, child) {
-        if (cartItems.isEmpty) {
+        final cartEntries = cartItems.entries.where((entry) {
+          return products.any(
+            (product) => product['name'] == entry.key,
+          );
+        }).toList();
+
+        if (cartEntries.isEmpty) {
           return const Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.shopping_cart_outlined, size: 65, color: textColor),
+                Icon(
+                  Icons.shopping_cart_outlined,
+                  size: 65,
+                  color: textColor,
+                ),
                 SizedBox(height: 12),
                 Text(
                   'Tu carrito está vacío',
-                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 SizedBox(height: 6),
                 Text('¡Hay tecnología esperándote!'),
@@ -609,14 +949,15 @@ class _HomePageState extends State<HomePage> {
           );
         }
 
-        final cartEntries = cartItems.entries.toList();
         double total = 0;
 
         for (final entry in cartEntries) {
           final product = products.firstWhere(
             (item) => item['name'] == entry.key,
           );
-          total += _parsePrice(product['price'] as String) * entry.value;
+
+          total +=
+              _parsePrice(product['price'] as String) * entry.value;
         }
 
         return Column(
@@ -640,9 +981,13 @@ class _HomePageState extends State<HomePage> {
                   ),
                   TextButton.icon(
                     onPressed: () => cart.value = {},
-                    icon: const Icon(Icons.remove_shopping_cart_outlined),
+                    icon: const Icon(
+                      Icons.remove_shopping_cart_outlined,
+                    ),
                     label: const Text('Vaciar cesta'),
-                    style: TextButton.styleFrom(foregroundColor: Colors.red),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red,
+                    ),
                   ),
                 ],
               ),
@@ -651,14 +996,22 @@ class _HomePageState extends State<HomePage> {
               child: ListView.separated(
                 padding: const EdgeInsets.all(16),
                 itemCount: cartEntries.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 12),
                 itemBuilder: (context, index) {
                   final entry = cartEntries[index];
+
                   final product = products.firstWhere(
                     (item) => item['name'] == entry.key,
                   );
+
                   final productName = entry.key;
                   final quantity = entry.value;
+                  final imageUrl = product['imageUrl'] as String?;
+                  final productColor =
+                      product['color'] as Color? ?? Colors.white;
+                  final productIcon =
+                      product['icon'] as IconData? ?? Icons.devices;
 
                   return Container(
                     padding: const EdgeInsets.all(12),
@@ -672,19 +1025,38 @@ class _HomePageState extends State<HomePage> {
                           width: 80,
                           height: 85,
                           decoration: BoxDecoration(
-                            color: product['color'] as Color,
+                            color: productColor,
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Icon(
-                            product['icon'] as IconData,
-                            size: 40,
-                            color: textColor,
-                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: imageUrl != null &&
+                                  imageUrl.trim().isNotEmpty
+                              ? Image.network(
+                                  imageUrl,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (
+                                    context,
+                                    error,
+                                    stackTrace,
+                                  ) {
+                                    return Icon(
+                                      productIcon,
+                                      size: 40,
+                                      color: textColor,
+                                    );
+                                  },
+                                )
+                              : Icon(
+                                  productIcon,
+                                  size: 40,
+                                  color: textColor,
+                                ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
                             children: [
                               Text(
                                 productName,
@@ -704,14 +1076,18 @@ class _HomePageState extends State<HomePage> {
                                 children: [
                                   IconButton(
                                     onPressed: () {
-                                      final updatedCart = Map<String, int>.from(
+                                      final updatedCart =
+                                          Map<String, int>.from(
                                         cart.value,
                                       );
+
                                       if (quantity <= 1) {
                                         updatedCart.remove(productName);
                                       } else {
-                                        updatedCart[productName] = quantity - 1;
+                                        updatedCart[productName] =
+                                            quantity - 1;
                                       }
+
                                       cart.value = updatedCart;
                                     },
                                     icon: const Icon(
@@ -726,20 +1102,28 @@ class _HomePageState extends State<HomePage> {
                                   ),
                                   IconButton(
                                     onPressed: () {
-                                      final updatedCart = Map<String, int>.from(
+                                      final updatedCart =
+                                          Map<String, int>.from(
                                         cart.value,
                                       );
-                                      updatedCart[productName] = quantity + 1;
+
+                                      updatedCart[productName] =
+                                          quantity + 1;
+
                                       cart.value = updatedCart;
                                     },
-                                    icon: const Icon(Icons.add_circle_outline),
+                                    icon: const Icon(
+                                      Icons.add_circle_outline,
+                                    ),
                                   ),
                                   const Spacer(),
                                   IconButton(
                                     onPressed: () {
-                                      final updatedCart = Map<String, int>.from(
+                                      final updatedCart =
+                                          Map<String, int>.from(
                                         cart.value,
                                       );
+
                                       updatedCart.remove(productName);
                                       cart.value = updatedCart;
                                     },
@@ -798,7 +1182,9 @@ class _HomePageState extends State<HomePage> {
                         onPressed: continueCheckout,
                         child: const Text(
                           'CONTINUAR CON LA COMPRA',
-                          style: TextStyle(fontWeight: FontWeight.w900),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
                     ),
@@ -833,6 +1219,7 @@ class _HomePageState extends State<HomePage> {
       if (index > 0 && (wholePart.length - index) % 3 == 0) {
         buffer.write('.');
       }
+
       buffer.write(wholePart[index]);
     }
 
@@ -856,22 +1243,24 @@ class _HomePageState extends State<HomePage> {
                       color: primaryColor,
                       borderRadius: BorderRadius.circular(25),
                     ),
-                    child: const Icon(Icons.person, size: 55, color: textColor),
+                    child: const Icon(
+                      Icons.person,
+                      size: 55,
+                      color: textColor,
+                    ),
                   ),
                   const SizedBox(height: 24),
                   const Text(
                     'Mi cuenta',
-                    style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900),
+                    style: TextStyle(
+                      fontSize: 23,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const SizedBox(height: 10),
                   ValueListenableBuilder<Map<String, dynamic>?>(
                     valueListenable: currentUser,
                     builder: (context, user, child) {
-                      final roles = user?['roles'];
-                      final role =
-                          user?['role']?.toString() ??
-                          (roles is List ? roles.join(', ') : null);
-
                       return Container(
                         width: double.infinity,
                         margin: const EdgeInsets.only(top: 8),
@@ -885,22 +1274,16 @@ class _HomePageState extends State<HomePage> {
                             _profileDataRow(
                               Icons.person_outline,
                               'Nombre',
-                              user?['name']?.toString() ?? 'No disponible',
+                              user?['name']?.toString() ??
+                                  'No disponible',
                             ),
                             const Divider(height: 24),
                             _profileDataRow(
                               Icons.email_outlined,
                               'Correo electrónico',
-                              user?['email']?.toString() ?? 'No disponible',
+                              user?['email']?.toString() ??
+                                  'No disponible',
                             ),
-                            if (role != null && role.isNotEmpty) ...[
-                              const Divider(height: 24),
-                              _profileDataRow(
-                                Icons.badge_outlined,
-                                'Rol',
-                                role,
-                              ),
-                            ],
                           ],
                         ),
                       );
@@ -918,13 +1301,18 @@ class _HomePageState extends State<HomePage> {
                       onPressed: () {
                         isLoggedIn.value = false;
                         favorites.value = <String>{};
+
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Has cerrado sesión.')),
+                          const SnackBar(
+                            content: Text('Has cerrado sesión.'),
+                          ),
                         );
                       },
                       child: const Text(
                         'CERRAR SESIÓN',
-                        style: TextStyle(fontWeight: FontWeight.w900),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
                   ),
@@ -938,10 +1326,16 @@ class _HomePageState extends State<HomePage> {
           onLoginSuccess: () {
             setState(() {
               final pendingProduct = pendingFavoriteProductName;
+
               if (pendingProduct != null) {
-                favorites.value = {...favorites.value, pendingProduct};
+                favorites.value = {
+                  ...favorites.value,
+                  pendingProduct,
+                };
+
                 pendingFavoriteProductName = null;
               }
+
               selectedTabIndex = 4;
             });
           },
@@ -958,7 +1352,10 @@ class _HomePageState extends State<HomePage> {
           padding: EdgeInsets.fromLTRB(20, 20, 20, 12),
           child: Text(
             'Mis favoritos',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+            ),
           ),
         ),
         Expanded(
@@ -967,8 +1364,9 @@ class _HomePageState extends State<HomePage> {
             builder: (context, favoriteNames, child) {
               final favoriteProducts = products
                   .where(
-                    (product) =>
-                        favoriteNames.contains(product['name'] as String),
+                    (product) => favoriteNames.contains(
+                      product['name'] as String,
+                    ),
                   )
                   .toList();
 
@@ -998,7 +1396,8 @@ class _HomePageState extends State<HomePage> {
                         const SizedBox(height: 16),
                         FilledButton(
                           onPressed: () => setState(
-                            () => selectedTabIndex = isLoggedIn.value ? 1 : 4,
+                            () => selectedTabIndex =
+                                isLoggedIn.value ? 1 : 4,
                           ),
                           child: Text(
                             isLoggedIn.value
@@ -1015,7 +1414,8 @@ class _HomePageState extends State<HomePage> {
               return GridView.builder(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
                 itemCount: favoriteProducts.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                gridDelegate:
+                    const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 12,
@@ -1023,10 +1423,13 @@ class _HomePageState extends State<HomePage> {
                 ),
                 itemBuilder: (context, index) {
                   final product = favoriteProducts[index];
+
                   return ProductCard(
                     product: product,
                     favorites: favorites,
-                    onFavorite: () => toggleFavorite(product['name'] as String),
+                    onFavorite: () => toggleFavorite(
+                      product['name'] as String,
+                    ),
                     onViewCart: openCart,
                   );
                 },
@@ -1038,7 +1441,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _profileDataRow(IconData icon, String label, String value) {
+  Widget _profileDataRow(
+    IconData icon,
+    String label,
+    String value,
+  ) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1048,9 +1455,17 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(color: Colors.grey)),
+              Text(
+                label,
+                style: const TextStyle(color: Colors.grey),
+              ),
               const SizedBox(height: 4),
-              Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ],
           ),
         ),

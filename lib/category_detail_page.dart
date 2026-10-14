@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'app_state.dart';
 import 'product_widgets.dart';
-import 'search_results_page.dart';
 
 class CategoryDetailPage extends StatefulWidget {
   final String name;

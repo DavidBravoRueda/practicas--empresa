@@ -18,6 +18,14 @@ class ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final productName = product['name'] as String? ?? 'Producto';
+    final imageUrl = product['imageUrl'] as String?;
+    final productColor = product['color'] as Color? ?? Colors.white;
+    final productIcon = product['icon'] as IconData? ?? Icons.devices;
+    final discount = product['discount'] as String?;
+    final originalPrice = product['originalPrice'] as String?;
+    final price = product['price'] as String? ?? '0,00 €';
+
     return GestureDetector(
       onTap: () {
         Navigator.push(
@@ -47,44 +55,47 @@ class ProductCard extends StatelessWidget {
                     width: double.infinity,
                     margin: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: product['color'] as Color,
+                      color: productColor,
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(
-                      product['icon'] as IconData,
-                      size: 75,
-                      color: textColor.withValues(alpha: 0.75),
+                    clipBehavior: Clip.antiAlias,
+                    child: _buildProductImage(
+                      imageUrl,
+                      productIcon,
+                      productColor,
+                      75,
                     ),
                   ),
-                  Positioned(
-                    top: 15,
-                    left: 15,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: primaryColor,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        product['discount'] as String,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 10,
+                  if (discount != null && discount.isNotEmpty)
+                    Positioned(
+                      top: 15,
+                      left: 15,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: primaryColor,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          discount,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 10,
+                          ),
                         ),
                       ),
                     ),
-                  ),
                   Positioned(
                     top: 9,
                     right: 9,
                     child: ValueListenableBuilder<Set<String>>(
                       valueListenable: favorites,
                       builder: (context, currentFavorites, child) {
-                        final productName = product['name'] as String;
-                        final favorite = currentFavorites.contains(productName);
+                        final favorite =
+                            currentFavorites.contains(productName);
 
                         return IconButton(
                           tooltip: isLoggedIn.value
@@ -93,7 +104,9 @@ class ProductCard extends StatelessWidget {
                           visualDensity: VisualDensity.compact,
                           onPressed: onFavorite,
                           icon: Icon(
-                            favorite ? Icons.favorite : Icons.favorite_border,
+                            favorite
+                                ? Icons.favorite
+                                : Icons.favorite_border,
                             color: favorite ? Colors.green : textColor,
                             size: 20,
                           ),
@@ -110,7 +123,7 @@ class ProductCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    product['name'] as String,
+                    productName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -118,30 +131,20 @@ class ProductCard extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 5),
-                  const Row(
-                    children: [
-                      Icon(Icons.star, color: Color(0xFFFFB800), size: 15),
-                      SizedBox(width: 3),
-                      Text('4,8', style: TextStyle(fontSize: 11)),
-                      SizedBox(width: 4),
-                      Text(
-                        '(128)',
-                        style: TextStyle(color: Colors.grey, fontSize: 10),
-                      ),
-                    ],
-                  ),
                   const SizedBox(height: 8),
-                  Text(
-                    product['originalPrice'] as String,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey,
-                      decoration: TextDecoration.lineThrough,
+                  if (originalPrice != null &&
+                      originalPrice.isNotEmpty &&
+                      originalPrice != price)
+                    Text(
+                      originalPrice,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey,
+                        decoration: TextDecoration.lineThrough,
+                      ),
                     ),
-                  ),
                   Text(
-                    product['price'] as String,
+                    price,
                     style: const TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w900,
@@ -149,17 +152,30 @@ class ProductCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 5),
-                  const Row(
+                  Row(
                     children: [
                       Icon(
-                        Icons.local_shipping_outlined,
+                        (product['stock'] as num?)?.toInt() == 0
+                            ? Icons.remove_shopping_cart_outlined
+                            : Icons.local_shipping_outlined,
                         size: 14,
-                        color: Colors.green,
+                        color: (product['stock'] as num?)?.toInt() == 0
+                            ? Colors.red
+                            : Colors.green,
                       ),
-                      SizedBox(width: 4),
-                      Text(
-                        'Envío disponible',
-                        style: TextStyle(fontSize: 10, color: Colors.green),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          (product['stock'] as num?)?.toInt() == 0
+                              ? 'Agotado'
+                              : 'Envío disponible',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: (product['stock'] as num?)?.toInt() == 0
+                                ? Colors.red
+                                : Colors.green,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -171,6 +187,44 @@ class ProductCard extends StatelessWidget {
       ),
     );
   }
+}
+
+Widget _buildProductImage(
+  String? imageUrl,
+  IconData icon,
+  Color fallbackColor,
+  double iconSize,
+) {
+  if (imageUrl != null && imageUrl.trim().isNotEmpty) {
+    return Image.network(
+      imageUrl,
+      width: double.infinity,
+      height: double.infinity,
+      fit: BoxFit.contain,
+      errorBuilder: (context, error, stackTrace) {
+        return Icon(
+          icon,
+          size: iconSize,
+          color: textColor.withValues(alpha: 0.75),
+        );
+      },
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) {
+          return child;
+        }
+
+        return const Center(
+          child: CircularProgressIndicator(strokeWidth: 2),
+        );
+      },
+    );
+  }
+
+  return Icon(
+    icon,
+    size: iconSize,
+    color: textColor.withValues(alpha: 0.75),
+  );
 }
 
 class ProductDetailPage extends StatelessWidget {
@@ -189,11 +243,22 @@ class ProductDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final productCategories = product['categories'] ?? ['Electrónica'];
+    final productCategories =
+        product['categories'] ?? ['Electrónica'];
 
     final categoryText = productCategories is List
         ? productCategories.join(' · ')
         : productCategories.toString();
+
+    final productName = product['name'] as String? ?? 'Producto';
+    final imageUrl = product['imageUrl'] as String?;
+    final productColor = product['color'] as Color? ?? Colors.white;
+    final productIcon = product['icon'] as IconData? ?? Icons.devices;
+    final price = product['price'] as String? ?? '';
+    final originalPrice = product['originalPrice'] as String?;
+    final description = product['description'] as String? ??
+        'Descubre este producto en TecnoStore.';
+    final features = product['features'] as List? ?? [];
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -201,7 +266,10 @@ class ProductDetailPage extends StatelessWidget {
         backgroundColor: backgroundColor,
         title: const Text(
           'Detalle del producto',
-          style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: textColor,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         centerTitle: true,
         iconTheme: const IconThemeData(color: textColor),
@@ -218,10 +286,12 @@ class ProductDetailPage extends StatelessWidget {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Icon(
-                product['icon'] as IconData? ?? Icons.devices,
-                size: 130,
-                color: product['color'] as Color? ?? primaryColor,
+              clipBehavior: Clip.antiAlias,
+              child: _buildProductImage(
+                imageUrl,
+                productIcon,
+                productColor,
+                130,
               ),
             ),
             Padding(
@@ -239,7 +309,7 @@ class ProductDetailPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    product['name'] as String? ?? 'Producto',
+                    productName,
                     style: const TextStyle(
                       fontSize: 27,
                       fontWeight: FontWeight.bold,
@@ -250,7 +320,7 @@ class ProductDetailPage extends StatelessWidget {
                   Row(
                     children: [
                       Text(
-                        product['price'] as String? ?? '',
+                        price,
                         style: const TextStyle(
                           fontSize: 25,
                           fontWeight: FontWeight.bold,
@@ -258,9 +328,11 @@ class ProductDetailPage extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      if (product['originalPrice'] != null)
+                      if (originalPrice != null &&
+                          originalPrice.isNotEmpty &&
+                          originalPrice != price)
                         Text(
-                          product['originalPrice'] as String,
+                          originalPrice,
                           style: const TextStyle(
                             fontSize: 16,
                             color: Colors.grey,
@@ -275,13 +347,15 @@ class ProductDetailPage extends StatelessWidget {
                     child: ValueListenableBuilder<Set<String>>(
                       valueListenable: favorites,
                       builder: (context, currentFavorites, child) {
-                        final productName = product['name'] as String;
-                        final favorite = currentFavorites.contains(productName);
+                        final favorite =
+                            currentFavorites.contains(productName);
 
                         return OutlinedButton.icon(
                           onPressed: onFavorite,
                           icon: Icon(
-                            favorite ? Icons.favorite : Icons.favorite_border,
+                            favorite
+                                ? Icons.favorite
+                                : Icons.favorite_border,
                           ),
                           label: Text(
                             favorite
@@ -303,8 +377,7 @@ class ProductDetailPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    product['description'] as String? ??
-                        'Descubre este producto en TecnoStore.',
+                    description,
                     style: const TextStyle(
                       fontSize: 15,
                       height: 1.6,
@@ -321,29 +394,28 @@ class ProductDetailPage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  if (product['features'] != null)
-                    ...List<String>.from(product['features']).map(
-                      (feature) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Icon(
-                              Icons.check_circle,
-                              color: Colors.green,
-                              size: 20,
+                  ...features.map(
+                    (feature) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.check_circle,
+                            color: Colors.green,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              feature.toString(),
+                              style: const TextStyle(fontSize: 15),
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                feature,
-                                style: const TextStyle(fontSize: 15),
-                              ),
-                            ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
+                  ),
                   const SizedBox(height: 30),
                   SizedBox(
                     width: double.infinity,
@@ -356,32 +428,40 @@ class ProductDetailPage extends StatelessWidget {
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      onPressed: () {
-                        final productName = product['name'] as String;
-                        final updatedCart = Map<String, int>.from(cart.value);
+                      onPressed:
+                          (product['stock'] as num?)?.toInt() == 0
+                              ? null
+                              : () {
+                                  final updatedCart =
+                                      Map<String, int>.from(cart.value);
 
-                        updatedCart[productName] =
-                            (updatedCart[productName] ?? 0) + 1;
+                                  updatedCart[productName] =
+                                      (updatedCart[productName] ?? 0) + 1;
 
-                        cart.value = updatedCart;
+                                  cart.value = updatedCart;
 
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('$productName añadido al carrito'),
-                            action: SnackBarAction(
-                              label: 'VER CARRITO',
-                              onPressed: () {
-                                Navigator.of(context)
-                                    .popUntil((route) => route.isFirst);
-                                onViewCart();
-                              },
-                            ),
-                          ),
-                        );
-                      },
-                      child: const Text(
-                        'Añadir al carrito',
-                        style: TextStyle(
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        '$productName añadido al carrito',
+                                      ),
+                                      action: SnackBarAction(
+                                        label: 'VER CARRITO',
+                                        onPressed: () {
+                                          Navigator.of(context).popUntil(
+                                            (route) => route.isFirst,
+                                          );
+                                          onViewCart();
+                                        },
+                                      ),
+                                    ),
+                                  );
+                                },
+                      child: Text(
+                        (product['stock'] as num?)?.toInt() == 0
+                            ? 'Producto agotado'
+                            : 'Añadir al carrito',
+                        style: const TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.bold,
                         ),
