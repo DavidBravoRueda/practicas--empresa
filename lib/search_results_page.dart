@@ -148,7 +148,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
                       label: const Text('Todas'),
                       selected: draftBrands.isEmpty,
                       showCheckmark: false,
-                      selectedColor: primaryColor.withValues(alpha: 0.55),
+                      selectedColor: selectionColor.withValues(alpha: 0.16),
                       onSelected: (_) => setSheetState(draftBrands.clear),
                     ),
                     ...brands.map(
@@ -156,7 +156,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
                         label: Text(brand),
                         selected: draftBrands.contains(brand),
                         showCheckmark: false,
-                        selectedColor: primaryColor.withValues(alpha: 0.55),
+                        selectedColor: selectionColor.withValues(alpha: 0.16),
                         onSelected: (selected) => setSheetState(() {
                           if (selected) {
                             draftBrands.add(brand);
@@ -172,7 +172,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
                   contentPadding: EdgeInsets.zero,
                   title: const Text('En oferta'),
                   value: draftOffers,
-                  activeTrackColor: primaryColor,
+                  activeTrackColor: selectionColor,
                   onChanged: (value) =>
                       setSheetState(() => draftOffers = value),
                 ),
@@ -180,7 +180,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Disponible'),
                   value: draftAvailable,
-                  activeTrackColor: primaryColor,
+                  activeTrackColor: selectionColor,
                   onChanged: (value) =>
                       setSheetState(() => draftAvailable = value),
                 ),
@@ -190,7 +190,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
                   child: FilledButton(
                     style: FilledButton.styleFrom(
                       backgroundColor: primaryColor,
-                      foregroundColor: textColor,
+                      foregroundColor: Colors.white,
                     ),
                     onPressed: () => Navigator.pop(sheetContext, (
                       draftBrands,
@@ -351,7 +351,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
                           label: const Text('Ordenar'),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: textColor,
-                            side: BorderSide(color: Colors.grey.shade300),
+                            side: const BorderSide(color: borderColor),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
@@ -373,7 +373,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
                           ),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: textColor,
-                            side: BorderSide(color: Colors.grey.shade300),
+                            side: const BorderSide(color: borderColor),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),

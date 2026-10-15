@@ -59,9 +59,18 @@ class _LoginFormContentState extends State<LoginFormContent> {
         );
       }
 
+      // El endpoint de autenticación puede devolver solo datos básicos.
+      // Refresca el perfil completo para incluir la dirección guardada.
+      Map<String, dynamic> profile = user;
+      try {
+        profile = await ApiService.getCurrentUser() ?? user;
+      } catch (_) {
+        // La sesión sigue siendo válida aunque no se pueda refrescar el perfil.
+      }
+
       if (!mounted) return;
 
-      currentUser.value = user;
+      currentUser.value = profile;
       isLoggedIn.value = true;
 
       widget.onLoginSuccess();
@@ -125,10 +134,10 @@ class _LoginFormContentState extends State<LoginFormContent> {
       child: OutlinedButton(
         onPressed: isLoading ? null : onPressed,
         style: OutlinedButton.styleFrom(
-          backgroundColor: isApple ? Colors.black : Colors.white,
-          foregroundColor: isApple ? Colors.white : textColor,
+          backgroundColor: isApple ? primaryColor : whiteColor,
+          foregroundColor: isApple ? whiteColor : textColor,
           side: BorderSide(
-            color: isApple ? Colors.black : const Color(0xFFDADCE0),
+            color: isApple ? primaryColor : borderColor,
           ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -191,7 +200,7 @@ class _LoginFormContentState extends State<LoginFormContent> {
                   ? 'Únete a TecnoStore'
                   : 'Accede a tu cuenta de TecnoStore',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey),
+              style: const TextStyle(color: secondaryTextColor),
             ),
             const SizedBox(height: 28),
             if (isCreatingAccount) ...[
@@ -288,7 +297,7 @@ class _LoginFormContentState extends State<LoginFormContent> {
               child: FilledButton(
                 style: FilledButton.styleFrom(
                   backgroundColor: primaryColor,
-                  foregroundColor: textColor,
+                  foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -317,7 +326,7 @@ class _LoginFormContentState extends State<LoginFormContent> {
             Row(
               children: [
                 const Expanded(
-                  child: Divider(color: Color(0xFFDADCE0)),
+                  child: Divider(color: borderColor),
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -326,7 +335,7 @@ class _LoginFormContentState extends State<LoginFormContent> {
                         ? 'O REGÍSTRATE CON'
                         : 'O CONTINÚA CON',
                     style: const TextStyle(
-                      color: Colors.grey,
+                      color: secondaryTextColor,
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 0.7,
@@ -334,7 +343,7 @@ class _LoginFormContentState extends State<LoginFormContent> {
                   ),
                 ),
                 const Expanded(
-                  child: Divider(color: Color(0xFFDADCE0)),
+                  child: Divider(color: borderColor),
                 ),
               ],
             ),
@@ -343,7 +352,7 @@ class _LoginFormContentState extends State<LoginFormContent> {
               leading: const Text(
                 'G',
                 style: TextStyle(
-                  color: Color(0xFF4285F4),
+                  color: primaryColor,
                   fontSize: 23,
                   fontWeight: FontWeight.w900,
                 ),

@@ -84,6 +84,7 @@ class ProductCard extends StatelessWidget {
                           style: const TextStyle(
                             fontWeight: FontWeight.w900,
                             fontSize: 10,
+                            color: Colors.white,
                           ),
                         ),
                       ),
@@ -107,7 +108,7 @@ class ProductCard extends StatelessWidget {
                             favorite
                                 ? Icons.favorite
                                 : Icons.favorite_border,
-                            color: favorite ? Colors.green : textColor,
+                            color: favorite ? primaryColor : textColor,
                             size: 20,
                           ),
                         );
@@ -139,7 +140,7 @@ class ProductCard extends StatelessWidget {
                       originalPrice,
                       style: const TextStyle(
                         fontSize: 11,
-                        color: Colors.grey,
+                        color: secondaryTextColor,
                         decoration: TextDecoration.lineThrough,
                       ),
                     ),
@@ -160,8 +161,8 @@ class ProductCard extends StatelessWidget {
                             : Icons.local_shipping_outlined,
                         size: 14,
                         color: (product['stock'] as num?)?.toInt() == 0
-                            ? Colors.red
-                            : Colors.green,
+                            ? errorColor
+                            : successColor,
                       ),
                       const SizedBox(width: 4),
                       Expanded(
@@ -172,8 +173,8 @@ class ProductCard extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 10,
                             color: (product['stock'] as num?)?.toInt() == 0
-                                ? Colors.red
-                                : Colors.green,
+                                ? errorColor
+                                : successColor,
                           ),
                         ),
                       ),
@@ -205,7 +206,7 @@ Widget _buildProductImage(
         return Icon(
           icon,
           size: iconSize,
-          color: textColor.withValues(alpha: 0.75),
+          color: secondaryTextColor,
         );
       },
       loadingBuilder: (context, child, loadingProgress) {
@@ -223,7 +224,7 @@ Widget _buildProductImage(
   return Icon(
     icon,
     size: iconSize,
-    color: textColor.withValues(alpha: 0.75),
+    color: secondaryTextColor,
   );
 }
 
@@ -257,7 +258,7 @@ class ProductDetailPage extends StatelessWidget {
     final price = product['price'] as String? ?? '';
     final originalPrice = product['originalPrice'] as String?;
     final description = product['description'] as String? ??
-        'Descubre este producto en TecnoStore.';
+        'Descubre este producto en Nexo.';
     final features = product['features'] as List? ?? [];
 
     return Scaffold(
@@ -335,7 +336,7 @@ class ProductDetailPage extends StatelessWidget {
                           originalPrice,
                           style: const TextStyle(
                             fontSize: 16,
-                            color: Colors.grey,
+                      color: secondaryTextColor,
                             decoration: TextDecoration.lineThrough,
                           ),
                         ),
@@ -381,7 +382,7 @@ class ProductDetailPage extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 15,
                       height: 1.6,
-                      color: Colors.black87,
+                      color: textColor,
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -402,7 +403,7 @@ class ProductDetailPage extends StatelessWidget {
                         children: [
                           const Icon(
                             Icons.check_circle,
-                            color: Colors.green,
+                            color: successColor,
                             size: 20,
                           ),
                           const SizedBox(width: 10),
@@ -423,7 +424,7 @@ class ProductDetailPage extends StatelessWidget {
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryColor,
-                        foregroundColor: textColor,
+                        foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),

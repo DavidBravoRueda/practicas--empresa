@@ -225,7 +225,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
-          backgroundColor: Colors.red.shade700,
+          backgroundColor: errorColor,
           duration: const Duration(seconds: 5),
         ),
       );
@@ -306,7 +306,10 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         ? '¡Tu pedido tiene envío gratis!'
                         : 'Envío gratis a partir de 50,00 €',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: secondaryTextColor,
+                    ),
                   ),
                 ],
               ),
@@ -388,7 +391,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.amber.shade50,
+                color: selectionColor.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -411,7 +414,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 onPressed: _isSubmitting ? null : _submitOrder,
                 style: FilledButton.styleFrom(
                   backgroundColor: primaryColor,
-                  foregroundColor: textColor,
+                  foregroundColor: Colors.white,
                 ),
                 icon: _isSubmitting
                     ? const SizedBox(

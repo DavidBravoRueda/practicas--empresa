@@ -25,6 +25,16 @@ class _HomePageState extends State<HomePage> {
   final ValueNotifier<Set<String>> favorites =
       ValueNotifier<Set<String>>({});
 
+  final _profileAddressController = TextEditingController();
+  final _profileCityController = TextEditingController();
+  final _profilePostalCodeController = TextEditingController();
+  final _profileCountryController = TextEditingController();
+  final _profilePhoneController = TextEditingController();
+  String? _profileFormUserId;
+  String? _profileFormValuesKey;
+  bool _isLoadingProfile = false;
+  bool _isSavingProfile = false;
+
   List<Map<String, dynamic>> products = [];
   List<Map<String, dynamic>> categories = [];
   List<Map<String, dynamic>> brands = [];
@@ -55,20 +65,30 @@ class _HomePageState extends State<HomePage> {
       final apiProducts = results[0];
       final apiCategories = results[1];
 
-      final loadedProducts = apiProducts
-          .where((product) => product['is_active'] != false)
-          .map(_mapApiProduct)
-          .toList();
-
       final loadedCategories = apiCategories.map((category) {
         final name = category['name']?.toString() ?? 'Otros';
+        final rawImageUrl = category['image_url'] ??
+            category['photo_url'] ??
+            category['photo'] ??
+            category['image'];
 
         return <String, dynamic>{
           ...category,
           'name': name,
+          'imageUrl': _categoryImageUrl(rawImageUrl),
           'icon': _iconForCategory(name),
         };
       }).toList();
+
+      final loadedProducts = apiProducts
+          .where((product) => product['is_active'] != false)
+          .map(
+            (product) => _mapApiProduct(
+              product,
+              knownCategories: loadedCategories,
+            ),
+          )
+          .toList();
 
       if (!mounted) return;
 
@@ -103,15 +123,103 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  String? _categoryImageUrl(dynamic value) {
+    final path = value?.toString().trim();
+    if (path == null || path.isEmpty) return null;
+
+    final uri = Uri.tryParse(path);
+    if (uri != null && uri.hasScheme) return path;
+    return Uri.parse(ApiService.baseUrl).resolve(path).toString();
+  }
+
+  Widget _categoryImage(Map<String, dynamic> category, {double size = 62}) {
+    final imageUrl = category['imageUrl'] as String?;
+    final fallback = Icon(
+      category['icon'] as IconData? ?? Icons.devices,
+      color: textColor,
+      size: size * 0.45,
+    );
+
+    if (imageUrl == null) return fallback;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size * 0.27),
+      child: Image.network(
+        imageUrl,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => fallback,
+      ),
+    );
+  }
+
   Map<String, dynamic> _mapApiProduct(
-    Map<String, dynamic> apiProduct,
-  ) {
+    Map<String, dynamic> apiProduct, {
+    required List<Map<String, dynamic>> knownCategories,
+  }) {
     final categoryData = apiProduct['category'];
     final brandData = apiProduct['brand'];
 
-    final categoryName = categoryData is Map
-        ? categoryData['name']?.toString() ?? 'Otros'
-        : 'Otros';
+    final categoryNames = <String>[];
+    final categoryIds = <String>{};
+
+    void addCategory(dynamic category) {
+      if (category is Map) {
+        final name = category['name']?.toString().trim();
+        final id = category['id'];
+        if (name != null && name.isNotEmpty) categoryNames.add(name);
+        if (id != null) categoryIds.add(id.toString());
+      } else if (category is String) {
+        final name = category.trim();
+        if (name.isNotEmpty) categoryNames.add(name);
+      } else if (category is num) {
+        categoryIds.add(category.toString());
+      }
+    }
+
+    final productCategories = apiProduct['categories'];
+    if (productCategories is List) {
+      for (final category in productCategories) {
+        addCategory(category);
+      }
+    } else if (productCategories is Map) {
+      addCategory(productCategories);
+    }
+
+    if (categoryData is List) {
+      for (final category in categoryData) {
+        addCategory(category);
+      }
+    } else {
+      addCategory(categoryData);
+    }
+
+    final rawCategoryIds = apiProduct['category_ids'];
+    if (rawCategoryIds is List) {
+      categoryIds.addAll(rawCategoryIds.map((id) => id.toString()));
+    }
+    if (apiProduct['category_id'] != null) {
+      categoryIds.add(apiProduct['category_id'].toString());
+    }
+
+    for (final knownCategory in knownCategories) {
+      if (categoryIds.contains(knownCategory['id']?.toString())) {
+        final name = knownCategory['name']?.toString().trim();
+        if (name != null && name.isNotEmpty) categoryNames.add(name);
+      }
+    }
+
+    final uniqueCategoryNames = <String>[];
+    final normalizedCategoryNames = <String>{};
+    for (final name in categoryNames) {
+      if (normalizedCategoryNames.add(name.toLowerCase())) {
+        uniqueCategoryNames.add(name);
+      }
+    }
+    if (uniqueCategoryNames.isEmpty) uniqueCategoryNames.add('Otros');
+
+    final categoryName = uniqueCategoryNames.first;
 
     final brandName = brandData is Map
         ? brandData['name']?.toString() ?? 'Sin marca'
@@ -134,7 +242,8 @@ class _HomePageState extends State<HomePage> {
       'sku': apiProduct['sku']?.toString() ?? '',
       'name': apiProduct['name']?.toString() ?? 'Producto',
       'createdAt': apiProduct['created_at']?.toString(),
-      'categories': [categoryName],
+      'categories': uniqueCategoryNames,
+      'categoryIds': categoryIds.toList(),
       'categoryId': apiProduct['category_id'],
       'brandId': apiProduct['brand_id'],
       'brand': brandName,
@@ -142,11 +251,11 @@ class _HomePageState extends State<HomePage> {
       'originalPrice': null,
       'discount': null,
       'icon': _iconForCategory(categoryName),
-      'color': _colorForCategory(categoryName),
+    'color': backgroundColor,
       'availability': stock > 0 ? 'Disponible' : 'Agotado',
       'stock': stock,
       'description': apiProduct['description']?.toString() ??
-          'Descubre este producto en TecnoStore.',
+          'Descubre este producto en Nexo.',
       'features': <String>[],
       'imageUrl': imageUrl,
       'isActive': apiProduct['is_active'] != false,
@@ -191,33 +300,87 @@ class _HomePageState extends State<HomePage> {
     return Icons.devices;
   }
 
-  Color _colorForCategory(String categoryName) {
-    final name = categoryName.toLowerCase();
-
-    if (name.contains('móvil') || name.contains('movil')) {
-      return const Color(0xFFE1E6ED);
-    }
-
-    if (name.contains('portátil') || name.contains('portatil')) {
-      return const Color(0xFFE4E0F5);
-    }
-
-    if (name.contains('gaming')) {
-      return const Color(0xFFD9F0E5);
-    }
-
-    if (name.contains('audio') || name.contains('periférico')) {
-      return const Color(0xFFFFE8D7);
-    }
-
-    return const Color(0xFFE8EDF2);
-  }
-
   @override
   void dispose() {
     homeSearchController.dispose();
     favorites.dispose();
+    _profileAddressController.dispose();
+    _profileCityController.dispose();
+    _profilePostalCodeController.dispose();
+    _profileCountryController.dispose();
+    _profilePhoneController.dispose();
     super.dispose();
+  }
+
+  void _syncProfileControllers(Map<String, dynamic>? user) {
+    final userId = user?['id']?.toString() ?? user?['email']?.toString();
+    final values = [
+      _profileValue(user, const ['address', 'shipping_address'], fallback: ''),
+      _profileValue(user, const ['city', 'shipping_city'], fallback: ''),
+      _profileValue(user, const [
+        'postal_code',
+        'zip_code',
+        'shipping_postal_code',
+      ], fallback: ''),
+      _profileValue(user, const ['country', 'shipping_country'], fallback: ''),
+      _profileValue(user, const ['phone', 'shipping_phone'], fallback: ''),
+    ];
+    final valuesKey = values.join('\u0000');
+    if (_profileFormUserId == userId &&
+        _profileFormValuesKey == valuesKey) {
+      return;
+    }
+
+    _profileFormUserId = userId;
+    _profileFormValuesKey = valuesKey;
+    _profileAddressController.text = values[0];
+    _profileCityController.text = values[1];
+    _profilePostalCodeController.text = values[2];
+    _profileCountryController.text = values[3];
+    _profilePhoneController.text = values[4];
+  }
+
+  Future<void> _loadProfileFromApi() async {
+    if (_isLoadingProfile || !isLoggedIn.value) return;
+
+    setState(() {
+      _isLoadingProfile = true;
+    });
+
+    try {
+      final user = await ApiService.getCurrentUser();
+      if (!mounted) return;
+
+      if (user == null) {
+        currentUser.value = null;
+        isLoggedIn.value = false;
+        _profileFormUserId = null;
+        _profileFormValuesKey = null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Tu sesión ha caducado. Inicia sesión de nuevo.'),
+          ),
+        );
+        return;
+      }
+
+      _profileFormValuesKey = null;
+      currentUser.value = user;
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is ApiException
+          ? error.message
+          : 'No se ha podido cargar el perfil desde la API.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingProfile = false;
+        });
+      }
+    }
   }
 
   void openCart() {
@@ -230,13 +393,18 @@ class _HomePageState extends State<HomePage> {
 
   void openCategory(Map<String, dynamic> category) {
     final categoryName = category['name'] as String;
-    final categoryIcon = category['icon'] as IconData;
+    final categoryId = category['id']?.toString();
+    final categoryIcon = category['icon'] as IconData? ?? Icons.devices;
 
     final categoryProducts = products.where((product) {
       final productCategories = product['categories'];
+      final productCategoryIds = product['categoryIds'];
 
-      return productCategories is List &&
-          productCategories.contains(categoryName);
+      return (productCategories is List &&
+              productCategories.contains(categoryName)) ||
+          (categoryId != null &&
+              productCategoryIds is List &&
+              productCategoryIds.contains(categoryId));
     }).toList();
 
     Navigator.push(
@@ -245,6 +413,7 @@ class _HomePageState extends State<HomePage> {
         builder: (_) => CategoryDetailPage(
           name: categoryName,
           icon: categoryIcon,
+          imageUrl: category['imageUrl'] as String?,
           products: categoryProducts,
           favorites: favorites,
           onFavorite: (product) {
@@ -279,7 +448,7 @@ class _HomePageState extends State<HomePage> {
             FilledButton(
               style: FilledButton.styleFrom(
                 backgroundColor: primaryColor,
-                foregroundColor: textColor,
+                foregroundColor: Colors.white,
               ),
               onPressed: () {
                 Navigator.pop(dialogContext);
@@ -327,7 +496,7 @@ class _HomePageState extends State<HomePage> {
             FilledButton(
               style: FilledButton.styleFrom(
                 backgroundColor: primaryColor,
-                foregroundColor: textColor,
+                foregroundColor: Colors.white,
               ),
               onPressed: () {
                 Navigator.pop(dialogContext);
@@ -423,7 +592,7 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(width: 9),
             const Text(
-              'tecno',
+              'Nexo',
               style: TextStyle(
                 color: textColor,
                 fontSize: 23,
@@ -507,12 +676,15 @@ class _HomePageState extends State<HomePage> {
           return NavigationBar(
             selectedIndex: visibleIndex,
             backgroundColor: Colors.white,
-            indicatorColor: primaryColor.withValues(alpha: 0.35),
+            indicatorColor: selectionColor.withValues(alpha: 0.2),
             onDestinationSelected: (index) {
               final pageIndex =
                   !loggedIn && index >= 2 ? index + 1 : index;
 
               setState(() => selectedTabIndex = pageIndex);
+              if (loggedIn && pageIndex == 4) {
+                _loadProfileFromApi();
+              }
             },
             destinations: destinations,
           );
@@ -628,11 +800,11 @@ class _HomePageState extends State<HomePage> {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: const Text(
-                    'TECNO OFERTAS',
+                    'NEXO OFERTAS',
                     style: TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 10,
-                      color: textColor,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -658,7 +830,7 @@ class _HomePageState extends State<HomePage> {
                 FilledButton(
                   style: FilledButton.styleFrom(
                     backgroundColor: primaryColor,
-                    foregroundColor: textColor,
+                    foregroundColor: Colors.white,
                   ),
                   onPressed: () {
                     setState(() => selectedTabIndex = 1);
@@ -714,11 +886,7 @@ class _HomePageState extends State<HomePage> {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(17),
                           ),
-                          child: Icon(
-                            category['icon'] as IconData,
-                            color: textColor,
-                            size: 28,
-                          ),
+                          child: _categoryImage(category),
                         ),
                         const SizedBox(height: 8),
                         Text(
@@ -757,7 +925,7 @@ class _HomePageState extends State<HomePage> {
                 const Icon(
                   Icons.cloud_off_outlined,
                   size: 45,
-                  color: Colors.grey,
+                  color: secondaryTextColor,
                 ),
                 const SizedBox(height: 12),
                 Text(
@@ -897,13 +1065,15 @@ class _HomePageState extends State<HomePage> {
         else
           ...categories.map((category) {
             final categoryName = category['name'] as String;
-            final categoryIcon = category['icon'] as IconData;
-
             return Card(
               color: Colors.white,
               elevation: 0,
               child: ListTile(
-                leading: Icon(categoryIcon),
+                leading: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: _categoryImage(category, size: 40),
+                ),
                 title: Text(categoryName),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => openCategory(category),
@@ -986,7 +1156,7 @@ class _HomePageState extends State<HomePage> {
                     ),
                     label: const Text('Vaciar cesta'),
                     style: TextButton.styleFrom(
-                      foregroundColor: Colors.red,
+                      foregroundColor: errorColor,
                     ),
                   ),
                 ],
@@ -1129,7 +1299,7 @@ class _HomePageState extends State<HomePage> {
                                     },
                                     icon: const Icon(
                                       Icons.delete_outline,
-                                      color: Colors.red,
+                                      color: errorColor,
                                     ),
                                   ),
                                 ],
@@ -1177,7 +1347,7 @@ class _HomePageState extends State<HomePage> {
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: primaryColor,
-                          foregroundColor: textColor,
+                          foregroundColor: Colors.white,
                         ),
                         onPressed: continueCheckout,
                         child: const Text(
@@ -1231,11 +1401,10 @@ class _HomePageState extends State<HomePage> {
       valueListenable: isLoggedIn,
       builder: (context, loggedIn, child) {
         if (loggedIn) {
-          return Center(
+          return SingleChildScrollView(
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
                     padding: const EdgeInsets.all(22),
@@ -1258,9 +1427,16 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                   const SizedBox(height: 10),
+                  if (_isLoadingProfile)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: LinearProgressIndicator(),
+                    ),
                   ValueListenableBuilder<Map<String, dynamic>?>(
                     valueListenable: currentUser,
                     builder: (context, user, child) {
+                      _syncProfileControllers(user);
+
                       return Container(
                         width: double.infinity,
                         margin: const EdgeInsets.only(top: 8),
@@ -1284,6 +1460,60 @@ class _HomePageState extends State<HomePage> {
                               user?['email']?.toString() ??
                                   'No disponible',
                             ),
+                            const Divider(height: 24),
+                            _profileTextField(
+                              controller: _profileAddressController,
+                              label: 'Dirección',
+                              icon: Icons.location_on_outlined,
+                            ),
+                            _profileTextField(
+                              controller: _profileCityController,
+                              label: 'Ciudad',
+                              icon: Icons.location_city_outlined,
+                            ),
+                            _profileTextField(
+                              controller: _profilePostalCodeController,
+                              label: 'Código postal',
+                              icon: Icons.markunread_mailbox_outlined,
+                            ),
+                            _profileTextField(
+                              controller: _profileCountryController,
+                              label: 'País',
+                              icon: Icons.public,
+                            ),
+                            _profileTextField(
+                              controller: _profilePhoneController,
+                              label: 'Teléfono',
+                              icon: Icons.phone_outlined,
+                              keyboardType: TextInputType.phone,
+                            ),
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: user == null || _isSavingProfile
+                                    ? null
+                                    : () => _saveProfileChanges(user),
+                                icon: _isSavingProfile
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.save_outlined),
+                                label: Text(
+                                  _isSavingProfile
+                                      ? 'Guardando…'
+                                      : 'Guardar cambios',
+                                ),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: primaryColor,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       );
@@ -1296,10 +1526,13 @@ class _HomePageState extends State<HomePage> {
                     child: FilledButton(
                       style: FilledButton.styleFrom(
                         backgroundColor: primaryColor,
-                        foregroundColor: textColor,
+                        foregroundColor: Colors.white,
                       ),
                       onPressed: () {
                         isLoggedIn.value = false;
+                        currentUser.value = null;
+                        _profileFormUserId = null;
+                        _profileFormValuesKey = null;
                         favorites.value = <String>{};
 
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -1380,7 +1613,7 @@ class _HomePageState extends State<HomePage> {
                         Icon(
                           Icons.favorite_border,
                           size: 58,
-                          color: Colors.grey.shade400,
+                          color: secondaryTextColor,
                         ),
                         const SizedBox(height: 12),
                         Text(
@@ -1390,7 +1623,7 @@ class _HomePageState extends State<HomePage> {
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 16,
-                            color: Colors.grey,
+                            color: secondaryTextColor,
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -1457,7 +1690,7 @@ class _HomePageState extends State<HomePage> {
             children: [
               Text(
                 label,
-                style: const TextStyle(color: Colors.grey),
+                style: const TextStyle(color: secondaryTextColor),
               ),
               const SizedBox(height: 4),
               Text(
@@ -1471,5 +1704,79 @@ class _HomePageState extends State<HomePage> {
         ),
       ],
     );
+  }
+
+  String _profileValue(
+    Map<String, dynamic>? user,
+    List<String> keys, {
+    String fallback = 'Sin especificar',
+  }) {
+    for (final key in keys) {
+      final value = user?[key]?.toString().trim();
+      if (value != null && value.isNotEmpty && value != 'null') {
+        return value;
+      }
+    }
+    return fallback;
+  }
+
+  Widget _profileTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    TextInputType? keyboardType,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: TextField(
+        controller: controller,
+        keyboardType: keyboardType,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon),
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveProfileChanges(Map<String, dynamic> user) async {
+    setState(() {
+      _isSavingProfile = true;
+    });
+
+    try {
+      final updatedUser = await ApiService.updateCurrentUser(
+        name: user['name']?.toString() ?? '',
+        address: _profileAddressController.text,
+        city: _profileCityController.text,
+        postalCode: _profilePostalCodeController.text,
+        country: _profileCountryController.text,
+        phone: _profilePhoneController.text,
+      );
+
+      if (!mounted) return;
+
+      _profileFormValuesKey = null;
+      currentUser.value = updatedUser;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Perfil actualizado correctamente.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is ApiException
+          ? error.message
+          : 'No se han podido guardar los cambios del perfil.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSavingProfile = false;
+        });
+      }
+    }
   }
 }

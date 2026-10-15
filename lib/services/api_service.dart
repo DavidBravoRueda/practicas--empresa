@@ -167,6 +167,47 @@ class ApiService {
     return Map<String, dynamic>.from(user);
   }
 
+  static Future<Map<String, dynamic>> updateCurrentUser({
+    required String name,
+    required String address,
+    required String city,
+    required String postalCode,
+    required String country,
+    required String phone,
+  }) async {
+    final token = await _storage.read(key: _tokenKey);
+
+    if (token == null || token.isEmpty) {
+      throw ApiException('Tu sesión ha caducado. Inicia sesión de nuevo.');
+    }
+
+    final response = await http.put(
+      Uri.parse('$baseUrl/api/user'),
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({
+        'name': name.trim(),
+        'address': address.trim(),
+        'city': city.trim(),
+        'postal_code': postalCode.trim(),
+        'country': country.trim(),
+        'phone': phone.trim(),
+      }),
+    );
+
+    final data = _decodeResponse(response);
+    final user = data['user'];
+
+    if (user is! Map) {
+      throw ApiException('La API no ha devuelto el perfil actualizado.');
+    }
+
+    return Map<String, dynamic>.from(user);
+  }
+
   static Future<void> logout() async {
     final token = await _storage.read(key: _tokenKey);
 

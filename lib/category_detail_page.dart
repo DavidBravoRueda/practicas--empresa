@@ -6,6 +6,7 @@ import 'product_widgets.dart';
 class CategoryDetailPage extends StatefulWidget {
   final String name;
   final IconData icon;
+  final String? imageUrl;
   final List<Map<String, dynamic>> products;
   final ValueNotifier<Set<String>> favorites;
   final ValueChanged<Map<String, dynamic>> onFavorite;
@@ -15,6 +16,7 @@ class CategoryDetailPage extends StatefulWidget {
     super.key,
     required this.name,
     required this.icon,
+    this.imageUrl,
     required this.products,
     required this.favorites,
     required this.onFavorite,
@@ -123,7 +125,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                       label: const Text('Todas'),
                       selected: draftBrands.isEmpty,
                       showCheckmark: false,
-                      selectedColor: primaryColor.withValues(alpha: 0.55),
+                      selectedColor: selectionColor.withValues(alpha: 0.16),
                       onSelected: (_) => setSheetState(draftBrands.clear),
                     ),
                     ...brands.map(
@@ -131,7 +133,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                         label: Text(brand),
                         selected: draftBrands.contains(brand),
                         showCheckmark: false,
-                        selectedColor: primaryColor.withValues(alpha: 0.55),
+                        selectedColor: selectionColor.withValues(alpha: 0.16),
                         onSelected: (selected) => setSheetState(() {
                           if (selected) {
                             draftBrands.add(brand);
@@ -147,7 +149,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                   contentPadding: EdgeInsets.zero,
                   title: const Text('En oferta'),
                   value: draftOffers,
-                  activeTrackColor: primaryColor,
+                  activeTrackColor: selectionColor,
                   onChanged: (value) =>
                       setSheetState(() => draftOffers = value),
                 ),
@@ -155,7 +157,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Disponible'),
                   value: draftAvailable,
-                  activeTrackColor: primaryColor,
+                  activeTrackColor: selectionColor,
                   onChanged: (value) =>
                       setSheetState(() => draftAvailable = value),
                 ),
@@ -165,7 +167,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                   child: FilledButton(
                     style: FilledButton.styleFrom(
                       backgroundColor: primaryColor,
-                      foregroundColor: textColor,
+                      foregroundColor: Colors.white,
                     ),
                     onPressed: () => Navigator.pop(sheetContext, (
                       draftBrands,
@@ -256,7 +258,20 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(widget.icon, size: 65, color: textColor),
+                  if (widget.imageUrl case final imageUrl?)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: Image.network(
+                        imageUrl,
+                        width: 90,
+                        height: 90,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) =>
+                            Icon(widget.icon, size: 65, color: textColor),
+                      ),
+                    )
+                  else
+                    Icon(widget.icon, size: 65, color: textColor),
                   const SizedBox(height: 12),
                   Text(
                     'Productos de ${widget.name}',
@@ -283,7 +298,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                           label: const Text('Ordenar'),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: textColor,
-                            side: BorderSide(color: Colors.grey.shade300),
+                            side: const BorderSide(color: borderColor),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
@@ -305,7 +320,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                           ),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: textColor,
-                            side: BorderSide(color: Colors.grey.shade300),
+                            side: const BorderSide(color: borderColor),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
