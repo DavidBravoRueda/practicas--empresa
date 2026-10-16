@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 
 import 'app_state.dart';
@@ -21,19 +22,8 @@ class _HomePageState extends State<HomePage> {
 
   final TextEditingController homeSearchController =
       TextEditingController();
-
   final ValueNotifier<Set<String>> favorites =
       ValueNotifier<Set<String>>({});
-
-  final _profileAddressController = TextEditingController();
-  final _profileCityController = TextEditingController();
-  final _profilePostalCodeController = TextEditingController();
-  final _profileCountryController = TextEditingController();
-  final _profilePhoneController = TextEditingController();
-  String? _profileFormUserId;
-  String? _profileFormValuesKey;
-  bool _isLoadingProfile = false;
-  bool _isSavingProfile = false;
 
   List<Map<String, dynamic>> products = [];
   List<Map<String, dynamic>> categories = [];
@@ -41,6 +31,39 @@ class _HomePageState extends State<HomePage> {
 
   bool _isLoadingCatalog = true;
   String? _catalogError;
+
+  List<Map<String, dynamic>> get mainCategories {
+    final childIds = <String>{};
+
+    for (final category in categories) {
+      final children = category['subcategories'];
+
+      if (children is List) {
+        for (final child in children) {
+          if (child is Map && child['id'] != null) {
+            childIds.add(child['id'].toString());
+          }
+        }
+      }
+    }
+
+    return categories.where((category) {
+      final name =
+          (category['name'] ?? '').toString().toLowerCase().trim();
+
+      final parentId = category['parent_id'] ??
+          category['parent_category_id'] ??
+          category['parentId'];
+
+      final id = category['id']?.toString();
+
+      if (parentId != null) return false;
+      if (id != null && childIds.contains(id)) return false;
+      if (name == 'ratones') return false;
+
+      return true;
+    }).toList();
+  }
 
   @override
   void initState() {
@@ -62,30 +85,29 @@ class _HomePageState extends State<HomePage> {
         ApiService.getCategories(),
       ]);
 
-      final apiProducts = results[0];
-      final apiCategories = results[1];
+      final apiProducts =
+          results[0] as List<Map<String, dynamic>>;
+      final apiCategories =
+          results[1] as List<Map<String, dynamic>>;
 
       final loadedCategories = apiCategories.map((category) {
         final name = category['name']?.toString() ?? 'Otros';
-        final rawImageUrl = category['image_url'] ??
-            category['photo_url'] ??
-            category['photo'] ??
-            category['image'];
 
         return <String, dynamic>{
           ...category,
           'name': name,
-          'imageUrl': _categoryImageUrl(rawImageUrl),
           'icon': _iconForCategory(name),
         };
       }).toList();
 
+      // Pasamos las categorías al mapeador para identificar
+      // correctamente las subcategorías de cada producto.
       final loadedProducts = apiProducts
           .where((product) => product['is_active'] != false)
           .map(
             (product) => _mapApiProduct(
               product,
-              knownCategories: loadedCategories,
+              loadedCategories,
             ),
           )
           .toList();
@@ -99,8 +121,6 @@ class _HomePageState extends State<HomePage> {
         _catalogError = null;
       });
 
-      // Las marcas son información complementaria.
-      // Si falla este endpoint, el catálogo sigue funcionando.
       try {
         final loadedBrands = await ApiService.getBrands();
 
@@ -110,7 +130,7 @@ class _HomePageState extends State<HomePage> {
           brands = loadedBrands;
         });
       } catch (_) {
-        // La tienda puede funcionar aunque no se carguen las marcas.
+        // El catálogo sigue funcionando aunque fallen las marcas.
       }
     } catch (error) {
       if (!mounted) return;
@@ -123,114 +143,105 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  String? _categoryImageUrl(dynamic value) {
-    final path = value?.toString().trim();
-    if (path == null || path.isEmpty) return null;
-
-    final uri = Uri.tryParse(path);
-    if (uri != null && uri.hasScheme) return path;
-    return Uri.parse(ApiService.baseUrl).resolve(path).toString();
-  }
-
-  Widget _categoryImage(Map<String, dynamic> category, {double size = 62}) {
-    final imageUrl = category['imageUrl'] as String?;
-    final fallback = Icon(
-      category['icon'] as IconData? ?? Icons.devices,
-      color: textColor,
-      size: size * 0.45,
-    );
-
-    if (imageUrl == null) return fallback;
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(size * 0.27),
-      child: Image.network(
-        imageUrl,
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => fallback,
-      ),
-    );
-  }
-
   Map<String, dynamic> _mapApiProduct(
-    Map<String, dynamic> apiProduct, {
-    required List<Map<String, dynamic>> knownCategories,
-  }) {
+    Map<String, dynamic> apiProduct,
+    List<Map<String, dynamic>> apiCategories,
+  ) {
     final categoryData = apiProduct['category'];
     final brandData = apiProduct['brand'];
 
-    final categoryNames = <String>[];
-    final categoryIds = <String>{};
+    final rawCategoryName = categoryData is Map
+        ? categoryData['name']?.toString() ?? 'Otros'
+        : apiProduct['category_name']?.toString() ?? 'Otros';
 
-    void addCategory(dynamic category) {
-      if (category is Map) {
-        final name = category['name']?.toString().trim();
-        final id = category['id'];
-        if (name != null && name.isNotEmpty) categoryNames.add(name);
-        if (id != null) categoryIds.add(id.toString());
-      } else if (category is String) {
-        final name = category.trim();
-        if (name.isNotEmpty) categoryNames.add(name);
-      } else if (category is num) {
-        categoryIds.add(category.toString());
+    final rawCategoryId = apiProduct['category_id'] ??
+        (categoryData is Map ? categoryData['id'] : null);
+
+    final productCategoryRelations = apiProduct['categories'];
+
+    // IDs de las categorías relacionadas con el producto.
+    final relatedCategoryIds = <String>{};
+
+    if (productCategoryRelations is List) {
+      for (final relation in productCategoryRelations) {
+        if (relation is Map && relation['id'] != null) {
+          relatedCategoryIds.add(relation['id'].toString());
+        }
       }
     }
 
-    final productCategories = apiProduct['categories'];
-    if (productCategories is List) {
-      for (final category in productCategories) {
-        addCategory(category);
-      }
-    } else if (productCategories is Map) {
-      addCategory(productCategories);
-    }
+    // Primero intentamos encontrar una subcategoría usando la
+    // jerarquía real de categorías que devuelve la API.
+    Map<String, dynamic>? relatedSubcategory;
 
-    if (categoryData is List) {
-      for (final category in categoryData) {
-        addCategory(category);
-      }
-    } else {
-      addCategory(categoryData);
-    }
+    for (final category in apiCategories) {
+      final categoryId = category['id'];
+      final parentId = category['parent_id'] ??
+          category['parent_category_id'] ??
+          category['parentId'];
 
-    final rawCategoryIds = apiProduct['category_ids'];
-    if (rawCategoryIds is List) {
-      categoryIds.addAll(rawCategoryIds.map((id) => id.toString()));
-    }
-    if (apiProduct['category_id'] != null) {
-      categoryIds.add(apiProduct['category_id'].toString());
-    }
+      if (categoryId == null || parentId == null) continue;
 
-    for (final knownCategory in knownCategories) {
-      if (categoryIds.contains(knownCategory['id']?.toString())) {
-        final name = knownCategory['name']?.toString().trim();
-        if (name != null && name.isNotEmpty) categoryNames.add(name);
+      if (relatedCategoryIds.contains(categoryId.toString())) {
+        relatedSubcategory = category;
+        break;
       }
     }
 
-    final uniqueCategoryNames = <String>[];
-    final normalizedCategoryNames = <String>{};
-    for (final name in categoryNames) {
-      if (normalizedCategoryNames.add(name.toLowerCase())) {
-        uniqueCategoryNames.add(name);
+    // Compatibilidad con APIs que no incluyen parent_id en la
+    // relación categories, pero sí devuelven el nombre Ratones.
+    if (relatedSubcategory == null &&
+        productCategoryRelations is List) {
+      for (final relation in productCategoryRelations) {
+        if (relation is! Map) continue;
+
+        final relationName =
+            (relation['name'] ?? '').toString().toLowerCase().trim();
+
+        if (relationName == 'ratones') {
+          relatedSubcategory =
+              Map<String, dynamic>.from(relation);
+          break;
+        }
       }
     }
-    if (uniqueCategoryNames.isEmpty) uniqueCategoryNames.add('Otros');
 
-    final categoryName = uniqueCategoryNames.first;
+    final nestedSubcategory = apiProduct['subcategory'] ??
+        apiProduct['sub_category'] ??
+        apiProduct['subcategory_data'];
+
+    final subcategoryData =
+        nestedSubcategory is Map
+            ? nestedSubcategory
+            : relatedSubcategory;
+
+    final nestedSubcategoryName = subcategoryData is Map
+        ? subcategoryData['name']?.toString()
+        : null;
+
+    final explicitSubcategoryName =
+        apiProduct['subcategory_name']?.toString() ??
+            apiProduct['sub_category_name']?.toString() ??
+            nestedSubcategoryName;
+
+    final isMouseCategory =
+        rawCategoryName.toLowerCase().trim() == 'ratones';
+
+    final categoryName =
+        isMouseCategory ? 'Periféricos' : rawCategoryName;
+
+    final subcategoryName = explicitSubcategoryName ??
+        (isMouseCategory ? rawCategoryName : null);
 
     final brandName = brandData is Map
         ? brandData['name']?.toString() ?? 'Sin marca'
-        : 'Sin marca';
+        : apiProduct['brand_name']?.toString() ?? 'Sin marca';
 
     final rawPrice = apiProduct['price'];
     final numericPrice =
         double.tryParse(rawPrice?.toString() ?? '') ?? 0.0;
 
     final rawStock = apiProduct['stock'];
-
     final stock = rawStock is num
         ? rawStock.toInt()
         : int.tryParse(rawStock?.toString() ?? '') ?? 0;
@@ -242,20 +253,29 @@ class _HomePageState extends State<HomePage> {
       'sku': apiProduct['sku']?.toString() ?? '',
       'name': apiProduct['name']?.toString() ?? 'Producto',
       'createdAt': apiProduct['created_at']?.toString(),
-      'categories': uniqueCategoryNames,
-      'categoryIds': categoryIds.toList(),
-      'categoryId': apiProduct['category_id'],
+      'categories': <String>[categoryName],
+      'categoryId': rawCategoryId,
+      'subcategoryId': apiProduct['subcategory_id'] ??
+          apiProduct['sub_category_id'] ??
+          (subcategoryData is Map ? subcategoryData['id'] : null) ??
+          (isMouseCategory && categoryData is Map
+              ? categoryData['id']
+              : null),
+      'subcategoryName': subcategoryName,
+      'subcategory': subcategoryData is Map
+          ? Map<String, dynamic>.from(subcategoryData)
+          : null,
       'brandId': apiProduct['brand_id'],
       'brand': brandName,
       'price': _formatPrice(numericPrice),
       'originalPrice': null,
       'discount': null,
       'icon': _iconForCategory(categoryName),
-    'color': backgroundColor,
+      'color': _colorForCategory(categoryName),
       'availability': stock > 0 ? 'Disponible' : 'Agotado',
       'stock': stock,
       'description': apiProduct['description']?.toString() ??
-          'Descubre este producto en Nexo.',
+          'Descubre este producto en TecnoStore.',
       'features': <String>[],
       'imageUrl': imageUrl,
       'isActive': apiProduct['is_active'] != false,
@@ -268,31 +288,24 @@ class _HomePageState extends State<HomePage> {
     if (name.contains('móvil') || name.contains('movil')) {
       return Icons.smartphone;
     }
-
     if (name.contains('portátil') || name.contains('portatil')) {
       return Icons.laptop_mac;
     }
-
     if (name.contains('gaming') || name.contains('videojuego')) {
       return Icons.sports_esports;
     }
-
     if (name.contains('componente')) {
       return Icons.memory;
     }
-
     if (name.contains('periférico') || name.contains('periferico')) {
       return Icons.keyboard;
     }
-
     if (name.contains('audio') || name.contains('auricular')) {
       return Icons.headphones;
     }
-
     if (name.contains('tablet')) {
       return Icons.tablet_mac;
     }
-
     if (name.contains('televisión') || name.contains('television')) {
       return Icons.tv;
     }
@@ -300,87 +313,30 @@ class _HomePageState extends State<HomePage> {
     return Icons.devices;
   }
 
+  Color _colorForCategory(String categoryName) {
+    final name = categoryName.toLowerCase();
+
+    if (name.contains('móvil') || name.contains('movil')) {
+      return const Color(0xFFE1E6ED);
+    }
+    if (name.contains('portátil') || name.contains('portatil')) {
+      return const Color(0xFFE4E0F5);
+    }
+    if (name.contains('gaming')) {
+      return const Color(0xFFD9F0E5);
+    }
+    if (name.contains('audio') || name.contains('periférico')) {
+      return const Color(0xFFFFE8D7);
+    }
+
+    return const Color(0xFFE8EDF2);
+  }
+
   @override
   void dispose() {
     homeSearchController.dispose();
     favorites.dispose();
-    _profileAddressController.dispose();
-    _profileCityController.dispose();
-    _profilePostalCodeController.dispose();
-    _profileCountryController.dispose();
-    _profilePhoneController.dispose();
     super.dispose();
-  }
-
-  void _syncProfileControllers(Map<String, dynamic>? user) {
-    final userId = user?['id']?.toString() ?? user?['email']?.toString();
-    final values = [
-      _profileValue(user, const ['address', 'shipping_address'], fallback: ''),
-      _profileValue(user, const ['city', 'shipping_city'], fallback: ''),
-      _profileValue(user, const [
-        'postal_code',
-        'zip_code',
-        'shipping_postal_code',
-      ], fallback: ''),
-      _profileValue(user, const ['country', 'shipping_country'], fallback: ''),
-      _profileValue(user, const ['phone', 'shipping_phone'], fallback: ''),
-    ];
-    final valuesKey = values.join('\u0000');
-    if (_profileFormUserId == userId &&
-        _profileFormValuesKey == valuesKey) {
-      return;
-    }
-
-    _profileFormUserId = userId;
-    _profileFormValuesKey = valuesKey;
-    _profileAddressController.text = values[0];
-    _profileCityController.text = values[1];
-    _profilePostalCodeController.text = values[2];
-    _profileCountryController.text = values[3];
-    _profilePhoneController.text = values[4];
-  }
-
-  Future<void> _loadProfileFromApi() async {
-    if (_isLoadingProfile || !isLoggedIn.value) return;
-
-    setState(() {
-      _isLoadingProfile = true;
-    });
-
-    try {
-      final user = await ApiService.getCurrentUser();
-      if (!mounted) return;
-
-      if (user == null) {
-        currentUser.value = null;
-        isLoggedIn.value = false;
-        _profileFormUserId = null;
-        _profileFormValuesKey = null;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Tu sesión ha caducado. Inicia sesión de nuevo.'),
-          ),
-        );
-        return;
-      }
-
-      _profileFormValuesKey = null;
-      currentUser.value = user;
-    } catch (error) {
-      if (!mounted) return;
-      final message = error is ApiException
-          ? error.message
-          : 'No se ha podido cargar el perfil desde la API.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingProfile = false;
-        });
-      }
-    }
   }
 
   void openCart() {
@@ -391,20 +347,76 @@ class _HomePageState extends State<HomePage> {
     setState(() => selectedTabIndex = 4);
   }
 
+  bool _isRatonesCategory(Map<String, dynamic> category) {
+    return (category['name'] ?? '').toString().toLowerCase().trim() ==
+        'ratones';
+  }
+
   void openCategory(Map<String, dynamic> category) {
-    final categoryName = category['name'] as String;
-    final categoryId = category['id']?.toString();
-    final categoryIcon = category['icon'] as IconData? ?? Icons.devices;
+    final categoryName = category['name']?.toString() ?? 'Categoría';
+
+    final categoryIcon = category['icon'] is IconData
+        ? category['icon'] as IconData
+        : _iconForCategory(categoryName);
+
+    final categoryId = category['id'];
+    final nested = category['subcategories'];
+
+    var subcategories = <Map<String, dynamic>>[];
+
+    if (nested is List) {
+      subcategories = nested
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    }
+
+    if (subcategories.isEmpty && categoryId != null) {
+      subcategories = categories.where((item) {
+        final parentId = item['parent_id'] ??
+            item['parent_category_id'] ??
+            item['parentId'];
+
+        return parentId != null &&
+            parentId.toString() == categoryId.toString();
+      }).toList();
+    }
+
+    if (subcategories.isEmpty &&
+        categoryName.toLowerCase().contains('perif')) {
+      subcategories = categories.where(_isRatonesCategory).toList();
+    }
+
+    if (subcategories.isNotEmpty) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SubcategoriesPage(
+            name: categoryName,
+            subcategories: subcategories,
+            products: products,
+            favorites: favorites,
+            onFavorite: (product) {
+              toggleFavorite(product['name']?.toString() ?? '');
+            },
+            onViewCart: openCart,
+          ),
+        ),
+      );
+      return;
+    }
 
     final categoryProducts = products.where((product) {
-      final productCategories = product['categories'];
-      final productCategoryIds = product['categoryIds'];
+      final productCategoryId = product['categoryId'];
 
-      return (productCategories is List &&
-              productCategories.contains(categoryName)) ||
-          (categoryId != null &&
-              productCategoryIds is List &&
-              productCategoryIds.contains(categoryId));
+      if (categoryId != null && productCategoryId != null) {
+        return productCategoryId.toString() == categoryId.toString();
+      }
+
+      final productCategories = product['categories'];
+
+      return productCategories is List &&
+          productCategories.contains(categoryName);
     }).toList();
 
     Navigator.push(
@@ -413,7 +425,6 @@ class _HomePageState extends State<HomePage> {
         builder: (_) => CategoryDetailPage(
           name: categoryName,
           icon: categoryIcon,
-          imageUrl: category['imageUrl'] as String?,
           products: categoryProducts,
           favorites: favorites,
           onFavorite: (product) {
@@ -448,13 +459,11 @@ class _HomePageState extends State<HomePage> {
             FilledButton(
               style: FilledButton.styleFrom(
                 backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
+                foregroundColor: textColor,
               ),
               onPressed: () {
                 Navigator.pop(dialogContext);
-                Navigator.of(context).popUntil(
-                  (route) => route.isFirst,
-                );
+                Navigator.of(context).popUntil((route) => route.isFirst);
                 openLogin();
               },
               child: const Text('Iniciar sesión'),
@@ -477,7 +486,6 @@ class _HomePageState extends State<HomePage> {
     favorites.value = updatedFavorites;
   }
 
-  // Abre el formulario de envío y registra el pedido en la API.
   Future<void> continueCheckout() async {
     if (!isLoggedIn.value) {
       showDialog<void>(
@@ -496,7 +504,7 @@ class _HomePageState extends State<HomePage> {
             FilledButton(
               style: FilledButton.styleFrom(
                 backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
+                foregroundColor: textColor,
               ),
               onPressed: () {
                 Navigator.pop(dialogContext);
@@ -507,13 +515,13 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
       );
-
       return;
     }
 
+    final cartItems = cart.value;
     final checkoutProducts = <Map<String, dynamic>>[];
 
-    for (final entry in cart.value.entries) {
+    for (final entry in cartItems.entries) {
       if (entry.value <= 0) continue;
 
       final matchingProducts = products.where(
@@ -536,25 +544,21 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       );
-
       return;
     }
 
     final order = await Navigator.of(context).push<Map<String, dynamic>>(
       MaterialPageRoute(
-        builder: (_) => CheckoutPage(
-          cartProducts: checkoutProducts,
-        ),
+        builder: (_) => CheckoutPage(cartProducts: checkoutProducts),
       ),
     );
 
     if (!mounted || order == null) return;
 
-    // La cesta solo se vacía si el formulario devuelve un pedido creado.
-    cart.value = <String, int>{};
+    cart.value = {};
 
     final orderId = order['id']?.toString() ?? '';
-    final total = order['total']?.toString() ?? '0';
+    final total = order['total']?.toString() ?? '';
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -584,15 +588,11 @@ class _HomePageState extends State<HomePage> {
                 color: primaryColor,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(
-                Icons.bolt,
-                color: textColor,
-                size: 25,
-              ),
+              child: const Icon(Icons.bolt, color: textColor, size: 25),
             ),
             const SizedBox(width: 9),
             const Text(
-              'Nexo',
+              'tecno',
               style: TextStyle(
                 color: textColor,
                 fontSize: 23,
@@ -628,10 +628,7 @@ class _HomePageState extends State<HomePage> {
           children: [
             _buildHomeContent(),
             _buildCategoriesPage(),
-            if (loggedIn)
-              _buildFavoritesPage()
-            else
-              const SizedBox.shrink(),
+            if (loggedIn) _buildFavoritesPage() else const SizedBox.shrink(),
             _buildCartPage(),
             _buildProfilePage(),
           ],
@@ -668,23 +665,19 @@ class _HomePageState extends State<HomePage> {
             ),
           ];
 
-          final visibleIndex =
-              !loggedIn && selectedTabIndex > 2
-                  ? selectedTabIndex - 1
-                  : selectedTabIndex;
+          final visibleIndex = !loggedIn && selectedTabIndex > 2
+              ? selectedTabIndex - 1
+              : selectedTabIndex;
 
           return NavigationBar(
             selectedIndex: visibleIndex,
             backgroundColor: Colors.white,
-            indicatorColor: selectionColor.withValues(alpha: 0.2),
+            indicatorColor: primaryColor.withValues(alpha: 0.35),
             onDestinationSelected: (index) {
               final pageIndex =
                   !loggedIn && index >= 2 ? index + 1 : index;
 
               setState(() => selectedTabIndex = pageIndex);
-              if (loggedIn && pageIndex == 4) {
-                _loadProfileFromApi();
-              }
             },
             destinations: destinations,
           );
@@ -706,7 +699,6 @@ class _HomePageState extends State<HomePage> {
 
         if (firstDate != null && secondDate != null) {
           final dateOrder = secondDate.compareTo(firstDate);
-
           if (dateOrder != 0) return dateOrder;
         } else if (firstDate != null) {
           return -1;
@@ -714,13 +706,8 @@ class _HomePageState extends State<HomePage> {
           return 1;
         }
 
-        final firstId = int.tryParse(
-          first['id']?.toString() ?? '',
-        );
-
-        final secondId = int.tryParse(
-          second['id']?.toString() ?? '',
-        );
+        final firstId = int.tryParse(first['id']?.toString() ?? '');
+        final secondId = int.tryParse(second['id']?.toString() ?? '');
 
         if (firstId != null && secondId != null) {
           return secondId.compareTo(firstId);
@@ -741,15 +728,10 @@ class _HomePageState extends State<HomePage> {
             controller: homeSearchController,
             decoration: InputDecoration(
               hintText: 'Busca móviles, portátiles...',
-              prefixIcon: const Icon(
-                Icons.search,
-                color: textColor,
-              ),
+              prefixIcon: const Icon(Icons.search, color: textColor),
               filled: true,
               fillColor: backgroundColor,
-              contentPadding: const EdgeInsets.symmetric(
-                vertical: 14,
-              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 14),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(13),
                 borderSide: BorderSide.none,
@@ -757,7 +739,6 @@ class _HomePageState extends State<HomePage> {
             ),
             onSubmitted: (value) {
               final query = value.trim();
-
               if (query.isEmpty) return;
 
               Navigator.push(
@@ -800,11 +781,11 @@ class _HomePageState extends State<HomePage> {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: const Text(
-                    'NEXO OFERTAS',
+                    'TECNO OFERTAS',
                     style: TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 10,
-                      color: Colors.white,
+                      color: textColor,
                     ),
                   ),
                 ),
@@ -821,20 +802,15 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(height: 10),
                 const Text(
                   'Descubre tus próximos favoritos.',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 13,
-                  ),
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
                 ),
                 const SizedBox(height: 20),
                 FilledButton(
                   style: FilledButton.styleFrom(
                     backgroundColor: primaryColor,
-                    foregroundColor: Colors.white,
+                    foregroundColor: textColor,
                   ),
-                  onPressed: () {
-                    setState(() => selectedTabIndex = 1);
-                  },
+                  onPressed: () => setState(() => selectedTabIndex = 1),
                   child: const Text(
                     'EXPLORAR PRODUCTOS',
                     style: TextStyle(fontWeight: FontWeight.w900),
@@ -852,9 +828,7 @@ class _HomePageState extends State<HomePage> {
         if (_isLoadingCatalog && categories.isEmpty)
           const SizedBox(
             height: 90,
-            child: Center(
-              child: CircularProgressIndicator(),
-            ),
+            child: Center(child: CircularProgressIndicator()),
           )
         else if (categories.isEmpty)
           const Padding(
@@ -867,11 +841,11 @@ class _HomePageState extends State<HomePage> {
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               scrollDirection: Axis.horizontal,
-              itemCount: categories.length,
+              itemCount: mainCategories.length,
               separatorBuilder: (context, index) =>
                   const SizedBox(width: 12),
               itemBuilder: (context, index) {
-                final category = categories[index];
+                final category = mainCategories[index];
 
                 return GestureDetector(
                   onTap: () => openCategory(category),
@@ -886,7 +860,11 @@ class _HomePageState extends State<HomePage> {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(17),
                           ),
-                          child: _categoryImage(category),
+                          child: Icon(
+                            category['icon'] as IconData,
+                            color: textColor,
+                            size: 28,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Text(
@@ -913,9 +891,7 @@ class _HomePageState extends State<HomePage> {
         if (_isLoadingCatalog)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 35),
-            child: Center(
-              child: CircularProgressIndicator(),
-            ),
+            child: Center(child: CircularProgressIndicator()),
           )
         else if (_catalogError != null)
           Padding(
@@ -925,13 +901,10 @@ class _HomePageState extends State<HomePage> {
                 const Icon(
                   Icons.cloud_off_outlined,
                   size: 45,
-                  color: secondaryTextColor,
+                  color: Colors.grey,
                 ),
                 const SizedBox(height: 12),
-                Text(
-                  _catalogError!,
-                  textAlign: TextAlign.center,
-                ),
+                Text(_catalogError!, textAlign: TextAlign.center),
                 const SizedBox(height: 12),
                 FilledButton.icon(
                   onPressed: _loadCatalog,
@@ -944,9 +917,7 @@ class _HomePageState extends State<HomePage> {
         else if (products.isEmpty)
           const Padding(
             padding: EdgeInsets.all(24),
-            child: Center(
-              child: Text('No hay productos disponibles.'),
-            ),
+            child: Center(child: Text('No hay productos disponibles.')),
           )
         else
           Padding(
@@ -955,8 +926,7 @@ class _HomePageState extends State<HomePage> {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: latestProducts.length,
-              gridDelegate:
-                  const SliverGridDelegateWithFixedCrossAxisCount(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
                 mainAxisSpacing: 12,
                 crossAxisSpacing: 12,
@@ -1016,9 +986,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildCategoriesPage() {
     if (_isLoadingCatalog && categories.isEmpty) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
 
     if (_catalogError != null && categories.isEmpty) {
@@ -1028,15 +996,9 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
-                Icons.cloud_off_outlined,
-                size: 45,
-              ),
+              const Icon(Icons.cloud_off_outlined, size: 45),
               const SizedBox(height: 12),
-              Text(
-                _catalogError!,
-                textAlign: TextAlign.center,
-              ),
+              Text(_catalogError!, textAlign: TextAlign.center),
               const SizedBox(height: 12),
               FilledButton.icon(
                 onPressed: _loadCatalog,
@@ -1054,26 +1016,21 @@ class _HomePageState extends State<HomePage> {
       children: [
         const Text(
           'Categorías',
-          style: TextStyle(
-            fontSize: 25,
-            fontWeight: FontWeight.w900,
-          ),
+          style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900),
         ),
         const SizedBox(height: 16),
         if (categories.isEmpty)
           const Text('No hay categorías disponibles.')
         else
-          ...categories.map((category) {
+          ...mainCategories.map((category) {
             final categoryName = category['name'] as String;
+            final categoryIcon = category['icon'] as IconData;
+
             return Card(
               color: Colors.white,
               elevation: 0,
               child: ListTile(
-                leading: SizedBox(
-                  width: 40,
-                  height: 40,
-                  child: _categoryImage(category, size: 40),
-                ),
+                leading: Icon(categoryIcon),
                 title: Text(categoryName),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => openCategory(category),
@@ -1089,9 +1046,7 @@ class _HomePageState extends State<HomePage> {
       valueListenable: cart,
       builder: (context, cartItems, child) {
         final cartEntries = cartItems.entries.where((entry) {
-          return products.any(
-            (product) => product['name'] == entry.key,
-          );
+          return products.any((product) => product['name'] == entry.key);
         }).toList();
 
         if (cartEntries.isEmpty) {
@@ -1126,8 +1081,7 @@ class _HomePageState extends State<HomePage> {
             (item) => item['name'] == entry.key,
           );
 
-          total +=
-              _parsePrice(product['price'] as String) * entry.value;
+          total += _parsePrice(product['price'] as String) * entry.value;
         }
 
         return Column(
@@ -1151,12 +1105,10 @@ class _HomePageState extends State<HomePage> {
                   ),
                   TextButton.icon(
                     onPressed: () => cart.value = {},
-                    icon: const Icon(
-                      Icons.remove_shopping_cart_outlined,
-                    ),
+                    icon: const Icon(Icons.remove_shopping_cart_outlined),
                     label: const Text('Vaciar cesta'),
                     style: TextButton.styleFrom(
-                      foregroundColor: errorColor,
+                      foregroundColor: Colors.red,
                     ),
                   ),
                 ],
@@ -1204,11 +1156,7 @@ class _HomePageState extends State<HomePage> {
                               ? Image.network(
                                   imageUrl,
                                   fit: BoxFit.contain,
-                                  errorBuilder: (
-                                    context,
-                                    error,
-                                    stackTrace,
-                                  ) {
+                                  errorBuilder: (context, error, stackTrace) {
                                     return Icon(
                                       productIcon,
                                       size: 40,
@@ -1225,8 +1173,7 @@ class _HomePageState extends State<HomePage> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 productName,
@@ -1247,9 +1194,7 @@ class _HomePageState extends State<HomePage> {
                                   IconButton(
                                     onPressed: () {
                                       final updatedCart =
-                                          Map<String, int>.from(
-                                        cart.value,
-                                      );
+                                          Map<String, int>.from(cart.value);
 
                                       if (quantity <= 1) {
                                         updatedCart.remove(productName);
@@ -1273,13 +1218,10 @@ class _HomePageState extends State<HomePage> {
                                   IconButton(
                                     onPressed: () {
                                       final updatedCart =
-                                          Map<String, int>.from(
-                                        cart.value,
-                                      );
+                                          Map<String, int>.from(cart.value);
 
                                       updatedCart[productName] =
                                           quantity + 1;
-
                                       cart.value = updatedCart;
                                     },
                                     icon: const Icon(
@@ -1290,16 +1232,14 @@ class _HomePageState extends State<HomePage> {
                                   IconButton(
                                     onPressed: () {
                                       final updatedCart =
-                                          Map<String, int>.from(
-                                        cart.value,
-                                      );
+                                          Map<String, int>.from(cart.value);
 
                                       updatedCart.remove(productName);
                                       cart.value = updatedCart;
                                     },
                                     icon: const Icon(
                                       Icons.delete_outline,
-                                      color: errorColor,
+                                      color: Colors.red,
                                     ),
                                   ),
                                 ],
@@ -1347,14 +1287,12 @@ class _HomePageState extends State<HomePage> {
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: primaryColor,
-                          foregroundColor: Colors.white,
+                          foregroundColor: textColor,
                         ),
                         onPressed: continueCheckout,
                         child: const Text(
                           'CONTINUAR CON LA COMPRA',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                          ),
+                          style: TextStyle(fontWeight: FontWeight.w900),
                         ),
                       ),
                     ),
@@ -1401,10 +1339,11 @@ class _HomePageState extends State<HomePage> {
       valueListenable: isLoggedIn,
       builder: (context, loggedIn, child) {
         if (loggedIn) {
-          return SingleChildScrollView(
+          return Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
                     padding: const EdgeInsets.all(22),
@@ -1427,15 +1366,13 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  if (_isLoadingProfile)
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 8),
-                      child: LinearProgressIndicator(),
-                    ),
                   ValueListenableBuilder<Map<String, dynamic>?>(
                     valueListenable: currentUser,
                     builder: (context, user, child) {
-                      _syncProfileControllers(user);
+                      final roles = user?['roles'];
+
+                      final role = user?['role']?.toString() ??
+                          (roles is List ? roles.join(', ') : null);
 
                       return Container(
                         width: double.infinity,
@@ -1450,70 +1387,22 @@ class _HomePageState extends State<HomePage> {
                             _profileDataRow(
                               Icons.person_outline,
                               'Nombre',
-                              user?['name']?.toString() ??
-                                  'No disponible',
+                              user?['name']?.toString() ?? 'No disponible',
                             ),
                             const Divider(height: 24),
                             _profileDataRow(
                               Icons.email_outlined,
                               'Correo electrónico',
-                              user?['email']?.toString() ??
-                                  'No disponible',
+                              user?['email']?.toString() ?? 'No disponible',
                             ),
-                            const Divider(height: 24),
-                            _profileTextField(
-                              controller: _profileAddressController,
-                              label: 'Dirección',
-                              icon: Icons.location_on_outlined,
-                            ),
-                            _profileTextField(
-                              controller: _profileCityController,
-                              label: 'Ciudad',
-                              icon: Icons.location_city_outlined,
-                            ),
-                            _profileTextField(
-                              controller: _profilePostalCodeController,
-                              label: 'Código postal',
-                              icon: Icons.markunread_mailbox_outlined,
-                            ),
-                            _profileTextField(
-                              controller: _profileCountryController,
-                              label: 'País',
-                              icon: Icons.public,
-                            ),
-                            _profileTextField(
-                              controller: _profilePhoneController,
-                              label: 'Teléfono',
-                              icon: Icons.phone_outlined,
-                              keyboardType: TextInputType.phone,
-                            ),
-                            const SizedBox(height: 16),
-                            SizedBox(
-                              width: double.infinity,
-                              child: FilledButton.icon(
-                                onPressed: user == null || _isSavingProfile
-                                    ? null
-                                    : () => _saveProfileChanges(user),
-                                icon: _isSavingProfile
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(Icons.save_outlined),
-                                label: Text(
-                                  _isSavingProfile
-                                      ? 'Guardando…'
-                                      : 'Guardar cambios',
-                                ),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: primaryColor,
-                                  foregroundColor: Colors.white,
-                                ),
+                            if (role != null && role.isNotEmpty) ...[
+                              const Divider(height: 24),
+                              _profileDataRow(
+                                Icons.badge_outlined,
+                                'Rol',
+                                role,
                               ),
-                            ),
+                            ],
                           ],
                         ),
                       );
@@ -1526,13 +1415,10 @@ class _HomePageState extends State<HomePage> {
                     child: FilledButton(
                       style: FilledButton.styleFrom(
                         backgroundColor: primaryColor,
-                        foregroundColor: Colors.white,
+                        foregroundColor: textColor,
                       ),
                       onPressed: () {
                         isLoggedIn.value = false;
-                        currentUser.value = null;
-                        _profileFormUserId = null;
-                        _profileFormValuesKey = null;
                         favorites.value = <String>{};
 
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -1543,9 +1429,7 @@ class _HomePageState extends State<HomePage> {
                       },
                       child: const Text(
                         'CERRAR SESIÓN',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                        ),
+                        style: TextStyle(fontWeight: FontWeight.w900),
                       ),
                     ),
                   ),
@@ -1561,11 +1445,7 @@ class _HomePageState extends State<HomePage> {
               final pendingProduct = pendingFavoriteProductName;
 
               if (pendingProduct != null) {
-                favorites.value = {
-                  ...favorites.value,
-                  pendingProduct,
-                };
-
+                favorites.value = {...favorites.value, pendingProduct};
                 pendingFavoriteProductName = null;
               }
 
@@ -1585,10 +1465,7 @@ class _HomePageState extends State<HomePage> {
           padding: EdgeInsets.fromLTRB(20, 20, 20, 12),
           child: Text(
             'Mis favoritos',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w900,
-            ),
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
           ),
         ),
         Expanded(
@@ -1597,9 +1474,8 @@ class _HomePageState extends State<HomePage> {
             builder: (context, favoriteNames, child) {
               final favoriteProducts = products
                   .where(
-                    (product) => favoriteNames.contains(
-                      product['name'] as String,
-                    ),
+                    (product) =>
+                        favoriteNames.contains(product['name'] as String),
                   )
                   .toList();
 
@@ -1613,7 +1489,7 @@ class _HomePageState extends State<HomePage> {
                         Icon(
                           Icons.favorite_border,
                           size: 58,
-                          color: secondaryTextColor,
+                          color: Colors.grey.shade400,
                         ),
                         const SizedBox(height: 12),
                         Text(
@@ -1623,7 +1499,7 @@ class _HomePageState extends State<HomePage> {
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 16,
-                            color: secondaryTextColor,
+                            color: Colors.grey,
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -1660,9 +1536,8 @@ class _HomePageState extends State<HomePage> {
                   return ProductCard(
                     product: product,
                     favorites: favorites,
-                    onFavorite: () => toggleFavorite(
-                      product['name'] as String,
-                    ),
+                    onFavorite: () =>
+                        toggleFavorite(product['name'] as String),
                     onViewCart: openCart,
                   );
                 },
@@ -1688,16 +1563,11 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                label,
-                style: const TextStyle(color: secondaryTextColor),
-              ),
+              Text(label, style: const TextStyle(color: Colors.grey)),
               const SizedBox(height: 4),
               Text(
                 value,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                ),
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ],
           ),
@@ -1705,78 +1575,140 @@ class _HomePageState extends State<HomePage> {
       ],
     );
   }
+}
 
-  String _profileValue(
-    Map<String, dynamic>? user,
-    List<String> keys, {
-    String fallback = 'Sin especificar',
-  }) {
-    for (final key in keys) {
-      final value = user?[key]?.toString().trim();
-      if (value != null && value.isNotEmpty && value != 'null') {
-        return value;
-      }
+/// Pantalla que muestra las subcategorías de una categoría principal.
+class SubcategoriesPage extends StatelessWidget {
+  const SubcategoriesPage({
+    super.key,
+    required this.name,
+    required this.subcategories,
+    required this.products,
+    required this.favorites,
+    required this.onFavorite,
+    required this.onViewCart,
+  });
+
+  final String name;
+  final List<Map<String, dynamic>> subcategories;
+  final List<Map<String, dynamic>> products;
+  final ValueNotifier<Set<String>> favorites;
+  final void Function(Map<String, dynamic>) onFavorite;
+  final VoidCallback onViewCart;
+
+  IconData _iconFor(String name) {
+    final value = name.toLowerCase();
+
+    if (value.contains('ratón') || value.contains('raton')) {
+      return Icons.mouse_outlined;
     }
-    return fallback;
+
+    if (value.contains('teclado')) {
+      return Icons.keyboard_outlined;
+    }
+
+    if (value.contains('auricular') || value.contains('audio')) {
+      return Icons.headphones_outlined;
+    }
+
+    return Icons.devices_other_outlined;
   }
 
-  Widget _profileTextField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    TextInputType? keyboardType,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: TextField(
-        controller: controller,
-        keyboardType: keyboardType,
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: Icon(icon),
-          border: const OutlineInputBorder(),
-          isDense: true,
-        ),
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(name)),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(
+            name,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text('Elige una subcategoría para ver sus productos.'),
+          const SizedBox(height: 12),
+          ...subcategories.map((subcategory) {
+            final subcategoryName =
+                subcategory['name']?.toString() ?? 'Subcategoría';
+
+            final subcategoryId = subcategory['id'];
+
+            final items = products.where((product) {
+              final productSubcategoryId = product['subcategoryId'];
+
+              if (subcategoryId != null &&
+                  productSubcategoryId != null) {
+                return productSubcategoryId.toString() ==
+                    subcategoryId.toString();
+              }
+
+              final nested = product['subcategory'];
+
+              if (subcategoryId != null &&
+                  nested is Map &&
+                  nested['id'] != null) {
+                return nested['id'].toString() ==
+                    subcategoryId.toString();
+              }
+
+              if (subcategoryId != null &&
+                  subcategoryName.toLowerCase().trim() == 'ratones' &&
+                  product['categoryId'] != null) {
+                return product['categoryId'].toString() ==
+                    subcategoryId.toString();
+              }
+
+              final productSubcategoryName =
+                  product['subcategoryName']?.toString().toLowerCase();
+
+              return productSubcategoryName ==
+                  subcategoryName.toLowerCase();
+            }).toList();
+
+            return Card(
+              color: Colors.white,
+              elevation: 0,
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: primaryColor.withValues(alpha: 0.3),
+                  child: Icon(
+                    _iconFor(subcategoryName),
+                    color: textColor,
+                  ),
+                ),
+                title: Text(
+                  subcategoryName,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: Text(
+                  '${items.length} ${items.length == 1 ? 'producto' : 'productos'}',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CategoryDetailPage(
+                        name: subcategoryName,
+                        icon: _iconFor(subcategoryName),
+                        products: items,
+                        favorites: favorites,
+                        onFavorite: onFavorite,
+                        onViewCart: onViewCart,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            );
+          }),
+        ],
       ),
     );
-  }
-
-  Future<void> _saveProfileChanges(Map<String, dynamic> user) async {
-    setState(() {
-      _isSavingProfile = true;
-    });
-
-    try {
-      final updatedUser = await ApiService.updateCurrentUser(
-        name: user['name']?.toString() ?? '',
-        address: _profileAddressController.text,
-        city: _profileCityController.text,
-        postalCode: _profilePostalCodeController.text,
-        country: _profileCountryController.text,
-        phone: _profilePhoneController.text,
-      );
-
-      if (!mounted) return;
-
-      _profileFormValuesKey = null;
-      currentUser.value = updatedUser;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Perfil actualizado correctamente.')),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      final message = error is ApiException
-          ? error.message
-          : 'No se han podido guardar los cambios del perfil.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSavingProfile = false;
-        });
-      }
-    }
   }
 }
